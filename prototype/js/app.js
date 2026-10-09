@@ -74,7 +74,7 @@ function go(hash) {
 }
 
 // ---- landing ---------------------------------------------------------------------
-const getToken = () => oauthToken() || store.get("dx.token", sessionStorage) || store.get("dx.token") || "";
+const getToken = () => oauthToken();
 
 function recents() {
   try { return JSON.parse(store.get("dx.recent") || "[]"); } catch { return []; }
@@ -88,10 +88,6 @@ function remember(id, config, split) {
 async function renderLanding() {
   $("examples").innerHTML = EXAMPLES.map(id => `<button class="chip-btn" data-ds="${esc(id)}">${esc(id)}</button>`).join("");
   $("open-error").hidden = true;
-  const tok = getToken();
-  $("token-input").value = oauthToken() ? "" : tok;
-  $("token-remember").checked = !!store.get("dx.token");
-  if (tok && !oauthToken()) $("token-box").open = true;
 
   renderAccount();
   if (api.apiBase()) {
@@ -123,15 +119,11 @@ async function renderLanding() {
 
 function renderAccount() {
   const me = session();
-  $("signin-block").hidden = !oauthEnabled || !!me;
-  $("account").hidden = !me && !oauthEnabled;
-  if (!me && oauthEnabled) {
-    $("account").innerHTML = `<button class="signin-top" id="signin-top">Sign in with Hugging Face</button>`;
-  }
+  $("signin-row").hidden = !oauthEnabled || !!me;
+  $("account").hidden = !me;
   if (me) {
     $("account").innerHTML = `${me.avatar ? `<img src="${esc(me.avatar)}" alt="">` : ""}<span class="nm">${esc(me.name || "Signed in")}</span>
       <button class="link-btn" id="signout">Sign out</button>`;
-    $("token-box").open = false;
   }
 }
 // The free server can restart (it has little memory) and forget a dataset. Carry on in browser mode.
@@ -144,7 +136,6 @@ const startSignIn = () => signIn(location.hash || "#/").catch(e => toast(e.messa
 $("signin").onclick = startSignIn;
 $("load-signin").onclick = startSignIn;
 $("account").addEventListener("click", async ev => {
-  if (ev.target.id === "signin-top") return startSignIn();
   if (ev.target.id !== "signout") return;
   await api.purgeCache(getToken());   // the server deletes everything it stored for this token
   signOut();
@@ -161,9 +152,6 @@ function submitOpen(raw) {
     return;
   }
   err.hidden = true;
-  const tok = $("token-input").value.trim();
-  store.del("dx.token"); store.del("dx.token", sessionStorage);
-  if (tok) store.set("dx.token", tok, $("token-remember").checked ? localStorage : sessionStorage);
   go(dsHash(id));
 }
 
@@ -210,19 +198,11 @@ function loadFail(step, e) {
   $("load-token").hidden = !e?.auth;
   $("load-signin").hidden = !oauthEnabled || !!session();
   $("load-retry").hidden = false;
-  if (e?.auth) $("load-token-input").value = getToken();
 }
 $("load-cancel").onclick = () => { cancelLoad(); go("#/"); };
 setInterval(() => { if (S?.remote) api.keepAlive(); }, 8 * 60_000);
 $("load-retry").onclick = () => // Finish an OAuth sign-in first (the redirect lands on ?code=...), then route.
 handleRedirect().catch(e => toast(e.message)).finally(route);
-$("load-token-go").onclick = () => {
-  const t = $("load-token-input").value.trim();
-  if (t) store.set("dx.token", t, sessionStorage);
-  // Finish an OAuth sign-in first (the redirect lands on ?code=...), then route.
-handleRedirect().catch(e => toast(e.message)).finally(route);
-};
-$("load-token-input").addEventListener("keydown", ev => { if (ev.key === "Enter") $("load-token-go").click(); });
 
 // ---- opening a Hugging Face dataset --------------------------------------------------
 function pickSplit(splits, config, split) {

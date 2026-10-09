@@ -13,7 +13,7 @@ services:
       - key: DATA_DIR
         value: /data
       - key: ALLOWED_ORIGINS
-        value: https://dataset-explorer-three.vercel.app,http://localhost:8765
+        value: https://hf-dataset-explorer.vercel.app,https://dataset-explorer-pooyashobbyprojects.vercel.app,http://localhost:8765
       - key: MAX_DATASET_GB
         value: "0.02"
       - key: CACHE_MAX_GB

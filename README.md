@@ -9,12 +9,12 @@ tool-calling datasets.
 
 ![Dataset Explorer](docs/explorer.png)
 
-**Live:** <https://dataset-explorer-three.vercel.app>
+**Live:** <https://hf-dataset-explorer.vercel.app>
 
 ## Features
 
-- **Open any dataset**: paste `owner/name` or a huggingface.co link. Gated and private datasets work through
-  "Sign in with Hugging Face" or a pasted token.
+- **Open any dataset**: paste `owner/name` or a huggingface.co link. Gated and private datasets work after
+  "Sign in with Hugging Face".
 - **Rows rendered by shape**: chat bubbles, tool-call cards with their arguments, collapsible tool definitions with
   parameter tables, `<think>` blocks, tool results. Anything else falls back to a field view with raw JSON.
 - **Facets with live counts**: derived for tool-calling data (tools offered, calls made, reply kind, query words
@@ -118,7 +118,7 @@ them cached across restarts, and raise `MAX_DATASET_GB`, `CACHE_MAX_GB` and `DUC
 - In server mode the token is forwarded to the backend so it can download gated Parquet files. It is used for the
   download only and is never stored.
 - Data that needed a token is cached per token, readable only with that token, and deleted when the token expires,
-  when you sign out, or after `PRIVATE_TTL_HOURS` for pasted tokens. Data readable without a token is cached once
+  when you sign out. Data readable without a token is cached once
   and shared.
 - Hugging Face dataset licenses still apply. This project does not redistribute dataset contents.
 

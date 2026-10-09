@@ -27,7 +27,7 @@
     <p class="lede">Open any Hugging Face dataset and move through it row by row. Chat and tool-calling data
       render as conversations, tool definitions and calls.</p>
     <p class="optimized"><span class="pill">Optimized for tool-calling datasets</span>
-      <span class="muted">OpenAI messages, ShareGPT, xLAM, BFCL, When2Call and similar. Any other dataset opens as a plain field view.</span></p>
+      <span class="opt-text">Works best with OpenAI messages, ShareGPT, xLAM, BFCL, When2Call and similar. Any other dataset opens as a plain field view.</span></p>
 
     <form id="open-form" class="open" autocomplete="off">
       <div class="field">
@@ -39,17 +39,10 @@
     <p id="open-error" class="form-error" role="alert" hidden></p>
     <p id="engine" class="engine"></p>
 
-    <details class="token" id="token-box">
-      <summary>Gated or private dataset?</summary>
-      <div id="signin-block" hidden>
-        <button type="button" id="signin" class="primary">Sign in with Hugging Face</button>
-        <p class="muted small">Grants read access to gated datasets you have been approved for. Or paste a token instead:</p>
-      </div>
-      <p class="muted small" id="token-note">Paste a Hugging Face access token with read access. It is kept in this browser and is only
-        ever sent to Hugging Face.</p>
-      <input id="token-input" type="password" placeholder="hf_..." autocomplete="off" spellcheck="false" aria-label="Hugging Face token">
-      <label class="check"><input type="checkbox" id="token-remember"> Remember on this device</label>
-    </details>
+    <div class="signin-row" id="signin-row">
+      <button type="button" id="signin" class="hf-btn">Sign in with Hugging Face</button>
+      <span class="signin-help">Needed only for gated or private datasets.</span>
+    </div>
 
     <div class="examples">
       <span class="label">Try</span>
@@ -77,12 +70,8 @@
     <p id="load-note" class="load-note" hidden></p>
     <p id="load-error" class="form-error" hidden></p>
     <div id="load-token" class="load-token" hidden>
-      <p class="small">This looks gated or private. Sign in or add a Hugging Face token to try again.</p>
-      <button id="load-signin" class="primary signin-wide" hidden>Sign in with Hugging Face</button>
-      <div class="inline">
-        <input id="load-token-input" type="password" placeholder="hf_..." autocomplete="off" spellcheck="false" aria-label="Hugging Face token">
-        <button id="load-token-go" class="primary">Retry</button>
-      </div>
+      <p class="small">This dataset is gated or private. Sign in with Hugging Face, then open it again.</p>
+      <button id="load-signin" class="hf-btn signin-wide">Sign in with Hugging Face</button>
     </div>
     <div class="load-actions">
       <button id="load-cancel">Cancel</button>

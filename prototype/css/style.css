@@ -97,8 +97,9 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .account:has(.signin-top) { background: none; border: 0; padding: 0; }
 .account img { width: 22px; height: 22px; border-radius: 50%; }
 .account .nm { font-weight: 600; }
-.optimized { margin: -14px auto 24px; max-width: 540px; font-size: 12.5px; display: grid; gap: 6px; justify-items: center; }
-.pill { background: var(--accent-soft); color: var(--accent); border-radius: 99px; padding: 2px 12px; font-weight: 600; font-size: 12px; }
+.optimized { margin: -14px auto 26px; max-width: 560px; display: grid; gap: 8px; justify-items: center; }
+.opt-text { font-size: 14px; color: var(--ink); opacity: .8; line-height: 1.5; }
+.pill { background: var(--accent); color: var(--accent-ink); border-radius: 99px; padding: 4px 14px; font-weight: 600; font-size: 13px; }
 #signin-block { margin-bottom: 8px; }
 #signin-block .primary, .signin-wide { width: 100%; justify-content: center; padding: 8px; margin-bottom: 6px; }
 .signin-wide { margin-bottom: 10px; }
@@ -349,3 +350,9 @@ details.tool[open] .tdesc { display: none; }
   .open button { padding: 11px; justify-content: center; }
   .detail { padding: 14px 14px 50px; }
 }
+
+/* Sign in with Hugging Face */
+.hf-btn { background: #ffd21e; color: #1b1b19; border: 1px solid #e0b900; border-radius: 10px; padding: 9px 18px; font-weight: 600; font-size: 14px; }
+.hf-btn:hover { filter: brightness(1.05); border-color: #c9a400; }
+.signin-row { margin: 18px 0 0; display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.signin-help { color: var(--ink); opacity: .75; font-size: 14px; }
