@@ -14,12 +14,19 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: |
+            server/package-lock.json
+            prototype/package-lock.json
       - name: Unit tests
         run: npm test
       - name: Syntax check
         run: |
           for f in prototype/js/*.js server/src/*.js; do node --check "$f"; done
+      - name: Frontend builds (Tailwind)
+        run: |
+          npm --prefix prototype ci
+          npm --prefix prototype run build
+          test -s prototype/dist/css/app.css && test -f prototype/dist/index.html
       - name: Server starts and answers health checks
         run: |
           npm --prefix server ci

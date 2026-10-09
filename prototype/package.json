@@ -1,0 +1,13 @@
+{
+  "name": "dataset-explorer-web",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i src/app.css -o css/app.css --minify",
+    "dev": "tailwindcss -i src/app.css -o css/app.css --watch",
+    "build": "npm run build:css && node build.mjs"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "tailwindcss": "^4.1.0"
+  }
+}

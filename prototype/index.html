@@ -6,7 +6,10 @@
 <title>Data Explorer</title>
 <meta name="description" content="Open any Hugging Face dataset and move through it row by row. Chat and tool-calling data render as conversations, tool definitions and calls.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f6df5'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h8' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/style.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="css/app.css">
 <script>
   try { const t = localStorage.getItem("dx.theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
 </script>
@@ -15,48 +18,70 @@
 
 <!-- Landing -->
 <main id="landing" class="view landing">
+  <div class="mesh" aria-hidden="true"></div>
   <div class="corner">
     <div id="account" class="account" hidden></div>
     <button class="icon-btn theme-btn" data-theme-toggle title="Toggle light / dark" aria-label="Toggle theme"></button>
   </div>
-  <div class="hero">
-    <div class="logo" aria-hidden="true">
-      <svg viewBox="0 0 32 32" width="28" height="28"><path d="M9 11h14M9 16h14M9 21h8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>
-    </div>
-    <h1>Data Explorer</h1>
-    <p class="lede">Open any Hugging Face dataset and move through it row by row. Chat and tool-calling data
-      render as conversations, tool definitions and calls.</p>
-    <p class="optimized"><span class="pill">Optimized for tool-calling datasets</span>
-      <span class="opt-text">Works best with OpenAI messages, ShareGPT, xLAM, BFCL, When2Call and similar. Any other dataset opens as a plain field view.</span></p>
 
-    <form id="open-form" class="open" autocomplete="off">
-      <div class="field">
-        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M13.5 13.5 17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        <input id="ds-input" placeholder="owner/dataset  or a huggingface.co link" spellcheck="false" autocapitalize="off" aria-label="Hugging Face dataset id" autofocus>
+  <div class="wrap mx-auto grid w-full max-w-6xl items-center gap-12 px-6 pb-20 pt-[11vh] lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:gap-16">
+    <section class="hero">
+      <div class="mb-7 flex items-center gap-3">
+        <span class="logo !m-0 !h-10 !w-10 !rounded-xl" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="22" height="22"><path d="M9 11h14M9 16h14M9 21h8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>
+        </span>
+        <span class="whitespace-nowrap font-display text-lg font-extrabold tracking-tight">Data Explorer</span>
+        <span class="pill hidden sm:inline-block">Built for tool-calling data</span>
       </div>
-      <button type="submit" class="primary">Open dataset</button>
-    </form>
-    <p id="open-error" class="form-error" role="alert" hidden></p>
-    <p id="engine" class="engine"></p>
 
-    <div class="signin-row" id="signin-row">
-      <button type="button" id="signin" class="hf-btn">Sign in with Hugging Face</button>
-      <span class="signin-help">Needed only for gated or private datasets.</span>
-    </div>
+      <h1 class="font-display text-[2.6rem] font-extrabold leading-[1.04] tracking-tight sm:text-5xl lg:text-[3.4rem] [text-wrap:balance]">
+        Read chat and tool&#8209;calling data, row by row.
+      </h1>
+      <p class="mt-5 max-w-xl text-[1.05rem] leading-relaxed text-muted">
+        Open any Hugging Face dataset. Conversations show as chat, tool calls as cards checked against their schema,
+        and every row can be filtered and searched.
+      </p>
 
-    <div class="examples">
-      <span class="label">Try</span>
-      <div id="examples"></div>
-    </div>
+      <form id="open-form" class="open mt-8" autocomplete="off">
+        <div class="field">
+          <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M13.5 13.5 17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <input id="ds-input" placeholder="owner/dataset  or a huggingface.co link" spellcheck="false" autocapitalize="off" aria-label="Hugging Face dataset id" autofocus>
+        </div>
+        <button type="submit" class="primary">Open dataset</button>
+      </form>
+      <p id="open-error" class="form-error" role="alert" hidden></p>
+      <p id="engine" class="engine"></p>
 
-    <section id="recent" class="shelf" hidden>
-      <h2>Recently opened <button id="recent-clear" class="link-btn">Clear</button></h2>
-      <div id="recent-list" class="shelf-list"></div>
+      <div class="signin-row" id="signin-row">
+        <button type="button" id="signin" class="hf-btn">Sign in with Hugging Face</button>
+        <span class="signin-help">Needed only for gated or private datasets.</span>
+      </div>
+
+      <div class="examples">
+        <span class="label">Try one</span>
+        <div id="examples"></div>
+      </div>
+
+      <section id="recent" class="shelf" hidden>
+        <h2>Recently opened <button id="recent-clear" class="link-btn">Clear</button></h2>
+        <div id="recent-list" class="shelf-list"></div>
+      </section>
+      <section id="local" class="shelf" hidden>
+        <h2>Local samples</h2>
+        <div id="local-list" class="shelf-list"></div>
+      </section>
     </section>
-    <section id="local" class="shelf" hidden>
-      <h2>Local samples</h2>
-      <div id="local-list" class="shelf-list"></div>
-    </section>
+
+    <aside class="preview hidden lg:block" aria-hidden="true">
+      <div class="pbar rise"><b>#4</b><span>glaive-function-calling-v2</span><span class="chip is-call ml-auto">1 call</span></div>
+      <div class="msg user rise"><div class="role">user</div><div class="mbody"><div class="md"><p>The numbers are 5, 2, 9, 1, 7, 4, 6, 3, 8. What is the median?</p></div></div></div>
+      <div class="msg assistant rise"><div class="role">assistant</div><div class="mbody">
+        <div class="call"><div class="call-head"><span class="ico">fn</span><b>calculate_median</b><span class="chip ok">matches offered tool</span></div>
+          <div class="args"><div class="arg"><div class="ak"><code>numbers</code><span class="ptype">array</span><span class="req">required</span></div><div class="av"><code class="av-j">[5,2,9,1,7,4,6,3,8]</code></div></div>
+          <div class="arg"><div class="ak"><code>precision</code><span class="warn-chip">not in schema</span></div><div class="av"><code class="av-j">2</code></div></div></div></div></div></div>
+      <div class="msg tool rise"><div class="role">tool result</div><div class="mbody"><pre class="json"><span class="jk">"median"</span>: <span class="jn">5</span></pre></div></div>
+      <div class="msg assistant rise"><div class="role">assistant</div><div class="mbody"><div class="md"><p>The median of the list is <strong>5</strong>.</p></div></div></div>
+    </aside>
   </div>
 </main>
 

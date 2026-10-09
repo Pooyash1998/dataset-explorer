@@ -1,0 +1,29 @@
+@import "tailwindcss";
+@source "../index.html";
+@source "../js";
+
+/* Theme tokens live in components.css as CSS variables (so light, dark and auto all work);
+   Tailwind utilities read them through these names, e.g. bg-panel, text-muted, border-line. */
+@theme inline {
+  --font-display: var(--display);
+  --font-sans: "Instrument Sans", system-ui, sans-serif;
+  --font-mono: var(--mono);
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-soft: var(--accent-soft);
+  --color-user: var(--user-c);
+  --color-assistant: var(--asst-c);
+  --color-system: var(--sys-c);
+  --color-call: var(--call-c);
+  --color-result: var(--res-c);
+}
+
+@import "./components.css" layer(components);

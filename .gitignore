@@ -10,3 +10,5 @@ dist/
 .DS_Store
 !.env.example
 .vercel
+prototype/css/app.css
+prototype/dist/
