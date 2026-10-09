@@ -44,7 +44,7 @@ Tested on When2Call, xLAM, ToolACE, Hermes function calling and Glaive function 
 
 ```mermaid
 flowchart LR
-  B[Browser<br/>static site on Vercel] -- "rows, facets, search" --> S[Server<br/>Node + DuckDB on Railway]
+  B[Browser<br/>static site on Vercel] -- "rows, facets, search" --> S[Server<br/>Node + DuckDB on Render]
   S -- "Parquet files, once" --> H[(Hugging Face)]
   B -. "browser-only mode<br/>100 rows per request" .-> H
 ```
@@ -101,9 +101,14 @@ Hugging Face page.
 ## Deployment
 
 The frontend is static and deploys to Vercel with the project root set to `prototype`. The backend deploys to
-Railway from the `Dockerfile` in the repository root, with a volume mounted at `/data`.
+Render from the `Dockerfile` in the repository root, described by [`render.yaml`](render.yaml): in Render choose
+New, then Blueprint, and pick this repository.
 
-Pushes to `main` run CI on GitHub Actions. Vercel and Railway deploy from the same repository.
+Pushes to `main` run CI on GitHub Actions, and Vercel and Render deploy from the same repository.
+
+On Render's free plan the backend sleeps after 15 minutes without traffic and its disk is ephemeral. The page wakes
+it on load (up to a minute), and datasets are downloaded again after a sleep. Raise the plan and add a disk to keep
+them cached across restarts, and raise `MAX_DATASET_GB`, `CACHE_MAX_GB` and `DUCKDB_MEMORY` with it.
 
 ## Privacy
 

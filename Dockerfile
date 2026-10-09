@@ -1,4 +1,4 @@
-# Backend for Railway (or anywhere). Build context is the repo root: the server reuses prototype/js/schema.js.
+# Backend image (Render, or anywhere that runs Docker). Build context is the repo root: the server reuses prototype/js/schema.js.
 FROM node:22-slim
 WORKDIR /app
 COPY server/package.json server/package-lock.json ./server/

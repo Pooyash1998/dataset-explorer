@@ -1,0 +1,28 @@
+# Render Blueprint: New > Blueprint > pick this repo. Free plan, so the disk is ephemeral and the service
+# sleeps after 15 minutes without traffic; cached datasets are re-downloaded when it wakes.
+services:
+  - type: web
+    name: dataset-explorer-server
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: ALLOWED_ORIGINS
+        value: https://dataset-explorer-three.vercel.app,http://localhost:8765
+      - key: MAX_DATASET_GB
+        value: "2"
+      - key: CACHE_MAX_GB
+        value: "3"
+      - key: DUCKDB_MEMORY
+        value: 256MB
+      - key: DUCKDB_THREADS
+        value: "1"
+      - key: MAX_JOBS
+        value: "1"
+      - key: PRIVATE_TTL_HOURS
+        value: "12"

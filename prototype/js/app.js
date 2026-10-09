@@ -94,11 +94,14 @@ async function renderLanding() {
   if (tok && !oauthToken()) $("token-box").open = true;
 
   renderAccount();
-  api.serverUp().then(up => {
-    $("engine").textContent = up ? "Server connected: whole datasets are indexed and searched on the server."
-      : "Browser mode: rows are loaded a few thousand at a time.";
-    $("engine").dataset.up = up ? "1" : "";
-  });
+  if (api.apiBase()) {
+    if (!api.isUp()) $("engine").textContent = "Waking the server, it sleeps when idle. You can open a dataset already.";
+    api.warmUp().then(up => {
+      $("engine").textContent = up ? "Server connected: whole datasets are indexed and searched on the server."
+        : "Browser mode: rows are loaded a few thousand at a time.";
+      $("engine").dataset.up = up ? "1" : "";
+    });
+  } else $("engine").textContent = "Browser mode: rows are loaded a few thousand at a time.";
   const rec = recents();
   $("recent").hidden = !rec.length;
   $("recent-list").innerHTML = rec.map(r => `<a class="shelf-item" href="${esc(dsHash(r.id, r.config, r.split))}">
@@ -198,6 +201,7 @@ function loadFail(step, e) {
   if (e?.auth) $("load-token-input").value = getToken();
 }
 $("load-cancel").onclick = () => { cancelLoad(); go("#/"); };
+setInterval(() => { if (S?.remote) api.keepAlive(); }, 8 * 60_000);
 $("load-retry").onclick = () => // Finish an OAuth sign-in first (the redirect lands on ?code=...), then route.
 handleRedirect().catch(e => toast(e.message)).finally(route);
 $("load-token-go").onclick = () => {
@@ -215,6 +219,13 @@ function pickSplit(splits, config, split) {
 }
 
 async function openDataset(id, config, split) {
+  if (api.apiBase() && !api.isUp()) {
+    loadUI(id, ["Waking the server"]);
+    setStep(0, "active");
+    $("load-note").textContent = "The free server sleeps when idle and can take up to a minute to wake.";
+    $("load-note").hidden = false;
+    
+  }
   if (await api.serverUp()) {
     try { return await openRemote(id, config, split); }
     catch (e) {

@@ -5,19 +5,30 @@ import { HFError } from "./hf.js";
 const override = () => { try { return localStorage.getItem("dx.api"); } catch { return null; } };
 export const apiBase = () => (override() ?? API_URL).replace(/\/+$/, "");
 
-let up = null, checked = 0;
-export async function serverUp() {
+let up = false, warming = null;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+export const isUp = () => up;
+
+// Free hosting sleeps when idle and takes up to a minute to wake. Poll /api/health until it answers.
+export function warmUp(maxMs = 60000) {
   const base = apiBase();
-  if (!base) return false;
-  if (up === null || (!up && Date.now() - checked > 15000)) {
-    checked = Date.now();
-    try {
-      const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(2500) });
-      up = res.ok;
-    } catch { up = false; }
-  }
-  return up;
+  if (!base) return Promise.resolve(false);
+  if (up) return Promise.resolve(true);
+  warming ||= (async () => {
+    const end = Date.now() + maxMs;
+    while (Date.now() < end) {
+      try {
+        const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(8000) });
+        if (res.ok) { up = true; return true; }
+      } catch {}
+      await sleep(2500);
+    }
+    return false;
+  })().finally(() => { warming = null; });
+  return warming;
 }
+export const serverUp = () => warmUp();
+export const keepAlive = () => { if (up) fetch(`${apiBase()}/api/health`).catch(() => { up = false; }); };
 
 export async function call(method, path, { body, token, signal } = {}) {
   let res;
@@ -29,7 +40,7 @@ export async function call(method, path, { body, token, signal } = {}) {
     });
   } catch (e) {
     if (e.name === "AbortError") throw e;
-    up = false; checked = Date.now();
+    up = false;
     const err = new HFError("Could not reach the server.");
     err.fallback = true;
     throw err;
