@@ -1,4 +1,4 @@
-import { parseDatasetId, getSplits, getRows, HFError, PAGE_LEN, onRetryNotice } from "./hf.js";
+import { parseDatasetId, getSplits, getRows, getParquetFiles, downloadFile, HFError, PAGE_LEN, onRetryNotice } from "./hf.js";
 import { detectPlan, normalizeRow, normalizeLocal, buildFacets } from "./schema.js";
 import { oauthEnabled, oauthToken, session, signIn, signOut, handleRedirect } from "./auth.js";
 import { esc, fmt, highlight, renderRow, renderListItem, SECTIONS, sectionsOf } from "./render.js";
@@ -332,12 +332,62 @@ async function openHF(id, wantConfig, wantSplit) {
     remember(id, sp.config, sp.split);
     openExplorer();
     // Keep going quietly so facets and search see more of the dataset.
-    const more = pagesFor(Math.min(AUTO_ROWS, st.total)).filter(o => !st.pages.has(o));
-    if (more.length) backgroundLoad(more, ctl, { quiet: true });
+    loadRest(st, ctl);
   } catch (e) {
     if (e.name === "AbortError") return;
     loadFail(step, e);
   }
+}
+
+// The rest of the dataset: from its Parquet files when possible (a few requests), else page by page.
+async function loadRest(st, ctl) {
+  if (st.busy) return;
+  st.busy = true; st.error = "";
+  try { await parquetLoad(st, ctl.signal); }
+  catch (e) { if (e.name === "AbortError") return; console.warn("Parquet load failed, using the rows API:", e); }
+  st.busy = false; st.note = "";
+  if (S !== st || ctl.signal.aborted) return;
+  const more = pagesFor(Math.min(AUTO_ROWS, st.total)).filter(o => !st.pages.has(o));
+  if (more.length) backgroundLoad(more, ctl, { quiet: true });
+  else { refresh(); setStatus(); }
+}
+
+// JSON-safe copy of a value read from Parquet (64-bit integers come back as BigInt).
+const plain = v => typeof v === "bigint" ? Number(v)
+  : Array.isArray(v) ? v.map(plain)
+  : v && typeof v === "object" && v.constructor === Object ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)]))
+  : v;
+
+async function parquetLoad(st, signal) {
+  if (st.src.kind !== "hf" || st.total <= PAGE_LEN * 3) throw new Error("small dataset");
+  const files = await getParquetFiles(st.src.id, st.src.config, st.src.split, st.src.token, signal);
+  const lib = await import("./vendor/parquet.js");
+  const sizeAll = files.reduce((a, f) => a + f.size, 0);
+  let base = 0, before = 0;
+  const target = Math.min(AUTO_ROWS, st.total);
+  for (const f of files) {
+    if (base >= target) break;
+    const buf = await downloadFile(f.url, st.src.token, signal, got => {
+      st.note = `downloading data ${Math.round(((before + got) / sizeAll) * 100)}%`; setStatus();
+    });
+    before += f.size;
+    st.note = "reading data"; setStatus();
+    const md = lib.parquetMetadata(buf);
+    let rowStart = 0;
+    for (const rg of md.row_groups) {
+      const n = Number(rg.num_rows), rowEnd = rowStart + n;
+      if (S !== st || signal.aborted) throw new DOMException("Aborted", "AbortError");
+      const rows = await lib.parquetReadObjects({ file: buf, compressors: lib.compressors, rowStart, rowEnd });
+      ingest(rows.map((r, i) => ({ row_idx: base + rowStart + i, row: plain(r), truncated_cells: [] })), -1);
+      for (let o = Math.ceil((base + rowStart) / PAGE_LEN) * PAGE_LEN; o + PAGE_LEN <= base + rowEnd; o += PAGE_LEN) st.pages.add(o);
+      rowStart = rowEnd;
+      if (!$("explorer").hidden) scheduleRefresh();
+      await new Promise(r => setTimeout(r, 0));
+    }
+    base += rowStart;
+  }
+  // The last, short page of the dataset.
+  if (base >= st.total) st.pages.add(Math.floor((st.total - 1) / PAGE_LEN) * PAGE_LEN);
 }
 
 const pagesFor = n => Array.from({ length: Math.ceil(n / PAGE_LEN) }, (_, i) => i * PAGE_LEN);
@@ -350,7 +400,7 @@ function ingest(items, offset) {
     S.byIdx.set(it.row_idx, v);
     S.chars += v._s.length;
   }
-  S.pages.add(offset);
+  if (offset >= 0) S.pages.add(offset);
 }
 
 async function loadPages(offsets, signal, onProgress, patient = false) {

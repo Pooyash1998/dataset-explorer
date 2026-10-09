@@ -109,3 +109,32 @@ export async function getRows(dataset, config, split, offset, length, token, sig
     return { features: x.features || y.features, rows: [...x.rows, ...y.rows], total: x.total ?? y.total, partial: x.partial || y.partial };
   }
 }
+
+// The auto-converted Parquet files of one split, in order. Throws if there are none.
+export async function getParquetFiles(dataset, config, split, token, signal) {
+  const d = await get("/parquet", { dataset }, token, signal);
+  const files = (d.parquet_files || []).filter(f => f.config === config && f.split === split)
+    .sort((a, b) => a.filename.localeCompare(b.filename));
+  if (!files.length) throw new HFError("No Parquet files for this split.");
+  return files;
+}
+
+// Downloads a whole file in one request, reporting progress. Few requests, so the rate limit does not matter.
+export async function downloadFile(url, token, signal, onProgress) {
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal });
+  if (!res.ok) throw new HFError(`Hugging Face answered HTTP ${res.status}.`, { status: res.status, auth: [401, 403, 404].includes(res.status) });
+  const total = +res.headers.get("content-length") || 0;
+  const reader = res.body.getReader();
+  const parts = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value); got += value.length;
+    onProgress?.(got, total);
+  }
+  const out = new Uint8Array(got);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out.buffer;
+}
