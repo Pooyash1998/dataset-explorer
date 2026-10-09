@@ -6,8 +6,8 @@ import * as api from "./remote.js";
 
 const LIST_PAGE = 200;     // rows per page in the list pane
 const BLOCK_ROWS = 300;    // loaded before the explorer opens
-const AUTO_ROWS = 50000;   // keep loading quietly up to this many rows
-const AUTO_CHARS = 40e6;   // ...or until roughly this much text is in memory
+const AUTO_ROWS = 1e6;     // keep loading in the background up to this many rows
+const AUTO_CHARS = 250e6;  // ...or until roughly this much text is in memory
 const MORE_ROWS = 5000;
 const CONCURRENCY = 3;
 const EXAMPLES = [
@@ -168,7 +168,7 @@ onRetryNotice(msg => {
   const el = $("load-note");
   el.textContent = msg;
   el.hidden = !msg || $("loading").hidden;
-  if (S && !$("explorer").hidden && !S.quiet) { S.note = msg; setStatus(); }
+  if (S && !$("explorer").hidden) { S.note = msg; setStatus(); }
 });
 
 const STEPS = ["Finding the dataset", "Reading its schema", "Loading the first rows"];
@@ -345,34 +345,38 @@ const pagesFor = n => Array.from({ length: Math.ceil(n / PAGE_LEN) }, (_, i) => 
 function ingest(items, offset) {
   for (const it of items) {
     if (S.byIdx.has(it.row_idx)) continue;
-    const v = normalizeRow(S.plan, it, S.features);
+    let v;
+    try { v = normalizeRow(S.plan, it, S.features); } catch { continue; }
     S.byIdx.set(it.row_idx, v);
     S.chars += v._s.length;
   }
   S.pages.add(offset);
 }
 
-async function loadPages(offsets, signal, onProgress) {
+async function loadPages(offsets, signal, onProgress, patient = false) {
   const st = S;
-  let done = 0, failed = null, next = 0;
+  let done = 0, next = 0, fatal = null;
+  const missed = [];
   const worker = async () => {
-    while (next < offsets.length && !failed && !signal.aborted && !(st.quiet && st.chars > AUTO_CHARS)) {
+    while (next < offsets.length && !fatal && !signal.aborted && !(st.quiet && st.chars > AUTO_CHARS)) {
       const off = offsets[next++];
       try {
-        const d = await getRows(st.src.id, st.src.config, st.src.split, off, PAGE_LEN, st.src.token, signal);
+        const d = await getRows(st.src.id, st.src.config, st.src.split, off, PAGE_LEN, st.src.token, signal, patient);
         if (S !== st) return;
         ingest(d.rows, off);
       } catch (e) {
         if (e.name === "AbortError") return;
-        failed = e;
-        return;
+        // In the background one bad page must not stop the rest; auth problems stop everything.
+        if (!patient || e.auth) { fatal = e; return; }
+        missed.push({ off, e });
       }
       onProgress?.(++done, offsets.length);
       if (S === st && !$("explorer").hidden) scheduleRefresh();
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, offsets.length) }, worker));
-  if (failed) throw failed;
+  if (fatal) throw fatal;
+  return missed;
 }
 
 // quiet: no spinner, no notices. Used for the automatic loading that follows opening a dataset.
@@ -382,12 +386,22 @@ async function backgroundLoad(offsets, ctl = loadCtl, { quiet = false } = {}) {
   st.busy = true; st.quiet = quiet; st.error = "";
   setStatus();
   try {
-    await loadPages(offsets, ctl.signal);
+    // Pages that failed are tried again a few times, after a pause.
+    let todo = offsets;
+    for (let round = 0; todo.length; round++) {
+      const missed = await loadPages(todo, ctl.signal, null, true);
+      if (ctl.signal.aborted || S !== st || !missed.length) break;
+      if (round >= 3) throw new Error(`${missed.length} pages could not be loaded: ${missed[0].e.message}`);
+      st.note = `retrying ${missed.length} pages`; setStatus();
+      await new Promise(r => setTimeout(r, 10000));
+      st.note = "";
+      todo = missed.map(m => m.off);
+    }
   } catch (e) {
     st.error = e.message;
     if (!quiet) toast(`Stopped loading rows: ${e.message}`);
   }
-  st.busy = false; st.quiet = false;
+  st.busy = false; st.quiet = false; st.note = "";
   if (S === st) { refresh(); setStatus(); }
 }
 
@@ -465,11 +479,10 @@ function setStatus() {
     return;
   }
   const n = S.views.length;
-  $("status-spin").hidden = !S.busy || S.quiet;
+  $("status-spin").hidden = !S.busy;
   $("more-btn").hidden = S.local || S.remote || S.quiet || n >= S.total;
-  if (S.note && !S.quiet) { $("status-spin").hidden = false; $("status-text").textContent = S.note; return; }
   $("status-text").textContent = S.local ? `${fmt(n)} rows`
-    : `${fmt(n)} of ${fmt(S.total)} rows loaded${S.partial ? " (partial dataset)" : ""}${S.busy && !S.quiet ? "…" : ""}`;
+    : `${fmt(n)} of ${fmt(S.total)} rows loaded${S.partial ? " (partial dataset)" : ""}${S.note ? ` \u00b7 ${S.note}` : S.error && !S.busy ? ` \u00b7 stopped: ${S.error}` : ""}`;
   $("more-btn").disabled = false;
 }
 

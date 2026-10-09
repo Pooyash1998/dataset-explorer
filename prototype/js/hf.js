@@ -27,20 +27,42 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 let notify = () => {};
 export const onRetryNotice = fn => { notify = fn; };
 
-async function get(path, params, token, signal) {
+// Pacing shared by patient (background) requests: the gap between request starts widens on a rate limit and
+// relaxes as requests succeed again.
+const MIN_GAP = 80, MAX_GAP = 6000;
+let gap = MIN_GAP, nextAt = 0;
+const aborted = () => new DOMException("Aborted", "AbortError");
+
+async function pace(signal) {
+  const now = Date.now(), at = Math.max(now, nextAt);
+  nextAt = at + gap;
+  if (at > now) await sleep(at - now);
+  if (signal?.aborted) throw aborted();
+}
+
+// patient: never give up on rate limits or network errors, only on real errors (auth, not found).
+async function get(path, params, token, signal, patient = false) {
   const url = `${API}${path}?${new URLSearchParams(params)}`;
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
   for (let attempt = 0; ; attempt++) {
+    if (patient) await pace(signal);
     let res = null;
     try { res = await fetch(url, { headers, signal }); }
     catch (e) { if (e.name === "AbortError") throw e; }
     // A 429 from the CDN carries no CORS headers, so the browser reports it as a failed fetch (res === null).
     const transient = !res || res.status === 429 || res.status >= 500;
-    if (res?.ok) { if (attempt) notify(""); return res.json(); }
-    if (transient && attempt < 4) {
-      notify("Hugging Face is slow or rate limiting requests, retrying\u2026");
-      await sleep(1500 * 2 ** attempt);
-      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    if (res?.ok) {
+      if (patient) gap = Math.max(MIN_GAP, gap * 0.9);
+      if (attempt) notify("");
+      return res.json();
+    }
+    // Rate limits and network errors are waited out for good; a server error that repeats is given up on.
+    if (transient && (attempt < 4 || (patient && (!res || res.status === 429 || attempt < 8)))) {
+      const wait = Math.min(1500 * 2 ** Math.min(attempt, 5), 30000);
+      if (patient) { gap = Math.min(MAX_GAP, gap * 2); nextAt = Math.max(nextAt, Date.now() + wait); }
+      notify(patient ? "Hugging Face is rate limiting, resuming shortly\u2026" : "Hugging Face is slow or rate limiting requests, retrying\u2026");
+      await sleep(wait);
+      if (signal?.aborted) throw aborted();
       continue;
     }
     notify("");
@@ -62,7 +84,7 @@ export async function getSplits(dataset, token, signal) {
   return d.splits;
 }
 
-export async function getRows(dataset, config, split, offset, length, token, signal) {
-  const d = await get("/rows", { dataset, config, split, offset, length }, token, signal);
+export async function getRows(dataset, config, split, offset, length, token, signal, patient = false) {
+  const d = await get("/rows", { dataset, config, split, offset, length }, token, signal, patient);
   return { features: d.features, rows: d.rows, total: d.num_rows_total, partial: !!d.partial };
 }
