@@ -4,6 +4,6 @@
 export const HF_CLIENT_ID = "67164b0a-c11c-435c-b743-4611614505e9";
 export const HF_SCOPES = "openid profile gated-repos";
 
-// Optional backend (server/ in this repo, deployed e.g. on Railway). With it, whole datasets are indexed and
+// Optional backend (server/ in this repo, deployed e.g. on Render). With it, whole datasets are indexed and
 // searched on the server. Leave empty to run in the browser only. A "dx.api" value in localStorage overrides it.
 export const API_URL = "https://dataset-explorer-server.onrender.com";
