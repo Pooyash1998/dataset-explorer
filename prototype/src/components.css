@@ -473,3 +473,9 @@ details.tool summary b { color: var(--accent); }
 .chip-btn { border-color: var(--line-strong); transition: transform .12s, border-color .12s, background .12s; }
 .chip-btn:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
 .hf-btn { box-shadow: 0 6px 18px rgba(255, 210, 30, .35); }
+
+/* round icon buttons: GitHub link and theme toggle */
+.icon-btn.round { width: 36px; height: 36px; min-width: 36px; padding: 0; border-radius: 99px; display: inline-flex; align-items: center; justify-content: center; }
+.gh-link { color: var(--muted); background: var(--panel); border: 1px solid var(--line-strong); transition: color .15s, border-color .15s, transform .15s; }
+.gh-link:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
+.topbar .icon-btn.round { width: 32px; height: 32px; min-width: 32px; }
