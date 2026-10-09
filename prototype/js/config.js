@@ -6,4 +6,4 @@ export const HF_SCOPES = "openid profile gated-repos";
 
 // Optional backend (server/ in this repo, deployed e.g. on Railway). With it, whole datasets are indexed and
 // searched on the server. Leave empty to run in the browser only. A "dx.api" value in localStorage overrides it.
-export const API_URL = "";
+export const API_URL = "https://server-production-49599.up.railway.app";
