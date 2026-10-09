@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Unit tests
+        run: npm test
+      - name: Syntax check
+        run: |
+          for f in prototype/js/*.js server/src/*.js; do node --check "$f"; done
+      - name: Server starts and answers health checks
+        run: |
+          npm --prefix server ci
+          DATA_DIR=$RUNNER_TEMP/cache PORT=8787 node server/src/index.js &
+          for i in $(seq 1 20); do curl -fs localhost:8787/api/health && exit 0; sleep 1; done
+          echo "server did not start"; exit 1
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the backend image
+        run: docker build -t dataset-explorer-server .
+      - name: Smoke test the image
+        run: |
+          docker run -d --name dx -p 8787:8787 dataset-explorer-server
+          for i in $(seq 1 20); do curl -fs localhost:8787/api/health && exit 0; sleep 1; done
+          docker logs dx; exit 1

@@ -1,0 +1,11 @@
+# Local assistant notes
+CLAUDE.md
+.claude/
+
+prototype/data/
+node_modules/
+dist/
+.vercel/
+.env*
+.DS_Store
+!.env.example

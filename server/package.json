@@ -1,0 +1,17 @@
+{
+  "name": "data-explorer-server",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "^1.5.6-r.1",
+    "@hono/node-server": "^2.1.4",
+    "hono": "^4.13.13"
+  }
+}

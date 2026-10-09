@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Explorer</title>
+<meta name="description" content="Open any Hugging Face dataset and move through it row by row. Chat and tool-calling data render as conversations, tool definitions and calls.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f6df5'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h8' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+<script>
+  try { const t = localStorage.getItem("dx.theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+</script>
+</head>
+<body>
+
+<!-- Landing -->
+<main id="landing" class="view landing">
+  <div class="corner">
+    <div id="account" class="account" hidden></div>
+    <button class="icon-btn theme-btn" data-theme-toggle title="Toggle light / dark" aria-label="Toggle theme"></button>
+  </div>
+  <div class="hero">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="28" height="28"><path d="M9 11h14M9 16h14M9 21h8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>
+    </div>
+    <h1>Data Explorer</h1>
+    <p class="lede">Open any Hugging Face dataset and move through it row by row. Chat and tool-calling data
+      render as conversations, tool definitions and calls.</p>
+    <p class="optimized"><span class="pill">Optimized for tool-calling datasets</span>
+      <span class="muted">OpenAI messages, ShareGPT, xLAM, BFCL, When2Call and similar. Any other dataset opens as a plain field view.</span></p>
+
+    <form id="open-form" class="open" autocomplete="off">
+      <div class="field">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M13.5 13.5 17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <input id="ds-input" placeholder="owner/dataset  or a huggingface.co link" spellcheck="false" autocapitalize="off" aria-label="Hugging Face dataset id" autofocus>
+      </div>
+      <button type="submit" class="primary">Open dataset</button>
+    </form>
+    <p id="open-error" class="form-error" role="alert" hidden></p>
+    <p id="engine" class="engine"></p>
+
+    <details class="token" id="token-box">
+      <summary>Gated or private dataset?</summary>
+      <div id="signin-block" hidden>
+        <button type="button" id="signin" class="primary">Sign in with Hugging Face</button>
+        <p class="muted small">Grants read access to gated datasets you have been approved for. Or paste a token instead:</p>
+      </div>
+      <p class="muted small" id="token-note">Paste a Hugging Face access token with read access. It is kept in this browser and is only
+        ever sent to Hugging Face.</p>
+      <input id="token-input" type="password" placeholder="hf_..." autocomplete="off" spellcheck="false" aria-label="Hugging Face token">
+      <label class="check"><input type="checkbox" id="token-remember"> Remember on this device</label>
+    </details>
+
+    <div class="examples">
+      <span class="label">Try</span>
+      <div id="examples"></div>
+    </div>
+
+    <section id="recent" class="shelf" hidden>
+      <h2>Recently opened <button id="recent-clear" class="link-btn">Clear</button></h2>
+      <div id="recent-list" class="shelf-list"></div>
+    </section>
+    <section id="local" class="shelf" hidden>
+      <h2>Local samples</h2>
+      <div id="local-list" class="shelf-list"></div>
+    </section>
+  </div>
+</main>
+
+<!-- Loading -->
+<main id="loading" class="view loading" hidden aria-live="polite">
+  <div class="load-card">
+    <div class="spinner lg" aria-hidden="true"></div>
+    <h2 id="load-title">Opening dataset</h2>
+    <ol id="load-steps" class="steps"></ol>
+    <div class="bar" id="load-bar" hidden><div></div></div>
+    <p id="load-note" class="load-note" hidden></p>
+    <p id="load-error" class="form-error" hidden></p>
+    <div id="load-token" class="load-token" hidden>
+      <p class="small">This looks gated or private. Sign in or add a Hugging Face token to try again.</p>
+      <button id="load-signin" class="primary signin-wide" hidden>Sign in with Hugging Face</button>
+      <div class="inline">
+        <input id="load-token-input" type="password" placeholder="hf_..." autocomplete="off" spellcheck="false" aria-label="Hugging Face token">
+        <button id="load-token-go" class="primary">Retry</button>
+      </div>
+    </div>
+    <div class="load-actions">
+      <button id="load-cancel">Cancel</button>
+      <button id="load-retry" class="primary" hidden>Try again</button>
+    </div>
+  </div>
+</main>
+
+<!-- Explorer -->
+<div id="explorer" class="view explorer" hidden data-pane="list">
+  <header class="topbar">
+    <a href="#/" class="brand" title="Back to start">
+      <span class="logo sm" aria-hidden="true"><svg viewBox="0 0 32 32" width="16" height="16"><path d="M9 11h14M9 16h14M9 21h8" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" fill="none"/></svg></span>
+      <span class="brand-text">Data Explorer</span>
+    </a>
+    <span class="sep" aria-hidden="true"></span>
+    <a id="ds-name" class="ds-name" target="_blank" rel="noopener" title="Open on Hugging Face"></a>
+    <select id="split-select" aria-label="Config and split" hidden></select>
+    <div class="status" id="status" role="status">
+      <span class="spinner sm" id="status-spin" hidden></span>
+      <span id="status-text" class="muted"></span>
+    </div>
+    <span class="spacer"></span>
+    <div class="menu-wrap">
+      <button id="more-btn" aria-haspopup="menu" aria-expanded="false">Load more <span aria-hidden="true">&#9662;</span></button>
+      <div id="more-menu" class="menu" role="menu" hidden></div>
+    </div>
+    <button id="random" title="Random row from the current filter (r)">Random <kbd>r</kbd></button>
+    <button class="icon-btn theme-btn" data-theme-toggle title="Toggle light / dark" aria-label="Toggle theme"></button>
+  </header>
+
+  <div class="panes">
+    <aside id="side" class="side">
+      <div class="search-wrap">
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M13.5 13.5 17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <input id="search" placeholder="Search loaded rows" spellcheck="false" aria-label="Search rows">
+        <kbd id="search-kbd">/</kbd>
+        <button id="search-clear" class="icon-btn tiny" hidden aria-label="Clear search">&times;</button>
+      </div>
+      <div id="search-note" class="hint">Plain text, or <code>/regex/</code></div>
+      <div class="side-head"><h3>Filters</h3><button id="clear-all" class="link-btn" hidden>Clear all</button><button id="hide-filters" class="mobile-only">Show rows</button></div>
+      <div id="filters"></div>
+    </aside>
+
+    <section id="list-pane" class="list-pane">
+      <div id="list-head" class="list-head"></div>
+      <div id="list" class="list" role="listbox" tabindex="-1"></div>
+    </section>
+
+    <section id="detail-pane" class="detail-pane">
+      <div class="detail-bar">
+        <button id="back-list" class="mobile-only">&lsaquo; Rows</button>
+        <div class="tabs" role="tablist">
+          <button class="tab on" data-tab="view" role="tab">Formatted</button>
+          <button class="tab" data-tab="raw" role="tab">Raw JSON</button>
+        </div>
+        <span class="spacer"></span>
+        <button id="prev" class="icon-btn" title="Previous row (k)" aria-label="Previous row">&uarr;</button>
+        <button id="next" class="icon-btn" title="Next row (j)" aria-label="Next row">&darr;</button>
+        <button id="copy" title="Copy this row as JSON">Copy JSON</button>
+      </div>
+      <div id="detail" class="detail"></div>
+    </section>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
