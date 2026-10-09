@@ -16,13 +16,22 @@ const byDir = new Map();      // dir -> Session
 export class Session {
   constructor(dir, ns, meta) {
     this.dir = dir; this.ns = ns; this.meta = meta;
-    this.db = null; this.dbOpened = 0; this.cache = new Map(); this.job = null;
+    this.db = null; this.dbOpened = 0; this.cache = new Map(); this.job = null; this.inflight = 0;
   }
   get sid() { return this.meta.sid; }
   save() { fs.mkdirSync(this.dir, { recursive: true }); fs.writeFileSync(path.join(this.dir, "meta.json"), JSON.stringify(this.meta)); }
   touch() { this.meta.lastAccess = Date.now(); this.dbOpened = Date.now(); }
+  // Run fn while this session's database is guaranteed to stay open.
+  async use(fn) {
+    this.inflight++;
+    try { return await fn(); } finally { this.inflight--; }
+  }
   async conn() {
     if (!this.db) {
+      // Each open database has its own memory pool, so keep only a few open and close the least recently used.
+      const open = allSessions().filter(s => s.db && s !== this && !s.job && !s.inflight).sort((a, b) => a.dbOpened - b.dbOpened);
+      let count = allSessions().filter(s => s.db).length;
+      while (count >= config.maxOpenDbs && open.length) { open.shift().closeDb(); count--; }
       this.db = await DuckDBInstance.create(path.join(this.dir, "db.duckdb"), {
         memory_limit: config.duckMemory, threads: config.duckThreads,
       });
@@ -83,7 +92,7 @@ export function sweep() {
     const priv = s.ns !== "public";
     if (priv && s.meta.expiresAt && s.meta.expiresAt < now) s.destroy();
     else if (!priv && now - s.meta.lastAccess > config.publicIdleMs) s.destroy();
-    else if (s.db && now - s.dbOpened > 10 * 60_000) s.closeDb();
+    else if (s.db && !s.inflight && now - s.dbOpened > 10 * 60_000) s.closeDb();
   }
   const pub = allSessions().filter(s => s.ns === "public" && !s.job).sort((a, b) => a.meta.lastAccess - b.meta.lastAccess);
   let total = pub.reduce((n, s) => n + (s.meta.bytes || 0), 0);

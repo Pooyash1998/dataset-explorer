@@ -15,11 +15,17 @@ services:
       - key: ALLOWED_ORIGINS
         value: https://dataset-explorer-three.vercel.app,http://localhost:8765
       - key: MAX_DATASET_GB
-        value: "2"
+        value: "0.02"
       - key: CACHE_MAX_GB
         value: "3"
       - key: DUCKDB_MEMORY
-        value: 256MB
+        value: 160MB
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=150
+      - key: MAX_OPEN_DBS
+        value: "1"
+      - key: INDEX_CHUNK_ROWS
+        value: "500"
       - key: DUCKDB_THREADS
         value: "1"
       - key: MAX_JOBS

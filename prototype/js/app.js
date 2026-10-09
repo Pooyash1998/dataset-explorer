@@ -107,8 +107,10 @@ async function renderLanding() {
   $("recent-list").innerHTML = rec.map(r => `<a class="shelf-item" href="${esc(dsHash(r.id, r.config, r.split))}">
     <span class="t">${esc(r.id)}</span><span class="s">${r.config ? esc(r.config + " / " + r.split) : ""}</span></a>`).join("");
 
-  // Local samples exist only when prototype/build_data.py has been run.
-  try {
+  // Local samples exist only when prototype/build_data.py has been run, so only look for them in local development.
+  const dev = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  $("local").hidden = true;
+  if (dev) try {
     const res = await fetch("data/index.json");
     const idx = res.ok ? await res.json() : [];
     if (Array.isArray(idx) && idx.length && !S) {
@@ -122,17 +124,27 @@ async function renderLanding() {
 function renderAccount() {
   const me = session();
   $("signin-block").hidden = !oauthEnabled || !!me;
-  $("account").hidden = !me;
+  $("account").hidden = !me && !oauthEnabled;
+  if (!me && oauthEnabled) {
+    $("account").innerHTML = `<button class="signin-top" id="signin-top">Sign in with Hugging Face</button>`;
+  }
   if (me) {
     $("account").innerHTML = `${me.avatar ? `<img src="${esc(me.avatar)}" alt="">` : ""}<span class="nm">${esc(me.name || "Signed in")}</span>
       <button class="link-btn" id="signout">Sign out</button>`;
     $("token-box").open = false;
   }
 }
+// The free server can restart (it has little memory) and forget a dataset. Carry on in browser mode.
+function sessionLost() {
+  const src = S?.src;
+  toast("The server restarted and lost this dataset. Continuing in browser mode.");
+  if (src?.id) openHF(src.id, src.config, src.split);
+}
 const startSignIn = () => signIn(location.hash || "#/").catch(e => toast(e.message));
 $("signin").onclick = startSignIn;
 $("load-signin").onclick = startSignIn;
 $("account").addEventListener("click", async ev => {
+  if (ev.target.id === "signin-top") return startSignIn();
   if (ev.target.id !== "signout") return;
   await api.purgeCache(getToken());   // the server deletes everything it stored for this token
   signOut();
@@ -253,7 +265,11 @@ async function openRemote(id, wantConfig, wantSplit) {
     let snap = await api.openRemote({ dataset: id, config: wantConfig, split: wantSplit, expiresAt: me?.exp || undefined }, token, ctl.signal);
     setStep(0, "done");
     for (;;) {
-      if (snap.status === "error") throw Object.assign(new HFError(snap.error), { auth: /gated|authenticat|access/i.test(snap.error) });
+      if (snap.status === "error") {
+        // Too big for the small free server: carry on in the browser instead.
+        if (/out of memory|over the server limit/i.test(snap.error)) throw Object.assign(new HFError("This dataset is too big for the free server."), { fallback: true });
+        throw Object.assign(new HFError(snap.error), { auth: /gated|authenticat|access/i.test(snap.error) });
+      }
       const at = snap.status === "queued" || snap.status === "downloading" ? 1 : snap.status === "loading" ? 2 : 3;
       for (let i = 1; i < at; i++) setStep(i, "done");
       setStep(step = at, "active");
@@ -294,7 +310,7 @@ async function monitorIndex(st, ctl) {
       if (snap.status === "error") { toast(`Indexing failed: ${snap.error}`); st.index.ready = false; setStatus(); return; }
     } catch (e) {
       if (e.name === "AbortError") return;
-      if (e.status === 404 || e.status === 410) { toast("The session expired. Reopening."); route(); return; }
+      if (e.status === 404 || e.status === 410) { sessionLost(); return; }
     }
     setStatus();
     if (!st.index.ready) renderFilters();
@@ -531,7 +547,7 @@ async function applyRemote({ resetSel = false } = {}) {
     renderFilters(); renderList(); renderDetail();
   } catch (e) {
     if (e.name === "AbortError" || id !== S.reqId) return;
-    if (e.status === 404 || e.status === 410) { toast("The session expired. Reopening."); route(); return; }
+    if (e.status === 404 || e.status === 410) { sessionLost(); return; }
     toast(e.message);
   }
 }

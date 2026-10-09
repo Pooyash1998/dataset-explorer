@@ -88,8 +88,7 @@ app.post("/api/sessions/:sid/query", async c => {
   const s = session(c), body = await c.req.json().catch(() => ({}));
   if (!s.meta.rawReady) throw new HFError("Still preparing this dataset.", 409);
   if (isFiltered(body) && !s.meta.indexReady) throw new HFError("Still indexing. Filters and search are not ready yet.", 409);
-  const conn = await s.conn();
-  return c.json(await queryRows(conn, s.meta, body));
+  return c.json(await s.use(async () => queryRows(await s.conn(), s.meta, body)));
 });
 
 app.post("/api/sessions/:sid/facets", async c => {
@@ -97,8 +96,7 @@ app.post("/api/sessions/:sid/facets", async c => {
   if (!s.meta.indexReady) throw new HFError("Still indexing.", 409);
   const key = JSON.stringify([body.filters || {}, body.q || "", !!body.regex]);
   if (!s.cache.has(key)) {
-    const conns = await Promise.all([s.conn(), s.conn(), s.conn()]);
-    const defs = await facetCounts(conns, s.meta, body);
+    const defs = await s.use(async () => facetCounts(await Promise.all([s.conn(), s.conn(), s.conn()]), s.meta, body));
     if (s.cache.size > 40) s.cache.delete(s.cache.keys().next().value);
     s.cache.set(key, defs);
   }

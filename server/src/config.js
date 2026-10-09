@@ -15,4 +15,6 @@ export const config = {
   duckMemory: process.env.DUCKDB_MEMORY || "1GB",
   duckThreads: String(num("DUCKDB_THREADS", 2)),
   maxJobs: num("MAX_JOBS", 2),
+  maxOpenDbs: num("MAX_OPEN_DBS", 2),
+  chunkRows: num("INDEX_CHUNK_ROWS", 1000),
 };

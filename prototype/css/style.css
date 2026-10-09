@@ -92,6 +92,9 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 }
 .corner { position: absolute; top: 14px; right: 14px; display: flex; gap: 8px; align-items: center; }
 .account { display: flex; align-items: center; gap: 8px; font-size: 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 3px 6px 3px 4px; }
+.signin-top { background: #ffd21e; color: #1b1b19; border-color: #e0b900; font-weight: 600; border-radius: 99px; padding: 5px 14px; }
+.signin-top:hover { filter: brightness(1.05); border-color: #e0b900; }
+.account:has(.signin-top) { background: none; border: 0; padding: 0; }
 .account img { width: 22px; height: 22px; border-radius: 50%; }
 .account .nm { font-weight: 600; }
 .optimized { margin: -14px auto 24px; max-width: 540px; font-size: 12.5px; display: grid; gap: 6px; justify-items: center; }

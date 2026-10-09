@@ -9,7 +9,7 @@ import { dirSize } from "./store.js";
 import { rowsJson, qstr } from "./query.js";
 import { detectPlan, normalizeRow, buildDefs } from "../../prototype/js/schema.js";
 
-const CHUNK = 2000;
+const CHUNK = config.chunkRows;
 const SEARCH_CHARS = Number(process.env.SEARCH_CHARS || 8000);
 let running = 0;
 const waiting = [];
@@ -62,7 +62,10 @@ async function load(sess) {
   m.status = "loading"; m.stage = "Loading into the database"; m.progress = 0;
   const list = fs.readdirSync(parts).sort().map(f => qstr(path.join(parts, f)));
   const c = await sess.conn();
+  // Streaming the scan (no row-order buffering) keeps memory flat; __idx is assigned once here and kept.
+  await c.run("SET preserve_insertion_order = false");
   await c.run(`CREATE OR REPLACE TABLE raw AS SELECT row_number() OVER () - 1 AS __idx, * FROM read_parquet([${list.join(", ")}], union_by_name = true)`);
+  await c.run("RESET preserve_insertion_order");
   m.total = Number((await c.runAndReadAll("SELECT count(*) AS n FROM raw")).getRowObjects()[0].n);
   const d = (await c.runAndReadAll("DESCRIBE SELECT * EXCLUDE (__idx) FROM raw")).getRowObjects();
   m.columns = d.map(r => ({ name: r.column_name, type: r.column_type }));
