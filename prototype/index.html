@@ -24,20 +24,20 @@
     <button class="icon-btn theme-btn" data-theme-toggle title="Toggle light / dark" aria-label="Toggle theme"></button>
   </div>
 
-  <div class="wrap mx-auto grid w-full max-w-6xl items-center gap-12 px-6 pb-20 pt-[11vh] lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:gap-16">
+  <div class="wrap mx-auto w-full max-w-2xl px-6 pb-20 pt-[12vh]">
     <section class="hero">
-      <div class="mb-7 flex items-center gap-3">
+      <div class="mb-7 flex flex-wrap items-center justify-center gap-3">
         <span class="logo !m-0 !h-10 !w-10 !rounded-xl" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="22" height="22"><path d="M9 11h14M9 16h14M9 21h8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>
         </span>
         <span class="whitespace-nowrap font-display text-lg font-extrabold tracking-tight">Data Explorer</span>
-        <span class="pill hidden sm:inline-block">Built for tool-calling data</span>
+        <span class="pill">Built for tool-calling data</span>
       </div>
 
-      <h1 class="font-display text-[2.6rem] font-extrabold leading-[1.04] tracking-tight sm:text-5xl lg:text-[3.4rem] [text-wrap:balance]">
+      <h1 class="font-display text-[2.6rem] font-extrabold leading-[1.04] tracking-tight [text-wrap:balance] sm:text-5xl lg:text-[3.4rem]">
         Read chat and tool&#8209;calling data, row by row.
       </h1>
-      <p class="mt-5 max-w-xl text-[1.05rem] leading-relaxed text-muted">
+      <p class="mx-auto mt-5 max-w-xl text-[1.05rem] leading-relaxed text-muted">
         Open any Hugging Face dataset. Conversations show as chat, tool calls as cards checked against their schema,
         and every row can be filtered and searched.
       </p>
@@ -72,16 +72,6 @@
       </section>
     </section>
 
-    <aside class="preview hidden lg:block" aria-hidden="true">
-      <div class="pbar rise"><b>#4</b><span>glaive-function-calling-v2</span><span class="chip is-call ml-auto">1 call</span></div>
-      <div class="msg user rise"><div class="role">user</div><div class="mbody"><div class="md"><p>The numbers are 5, 2, 9, 1, 7, 4, 6, 3, 8. What is the median?</p></div></div></div>
-      <div class="msg assistant rise"><div class="role">assistant</div><div class="mbody">
-        <div class="call"><div class="call-head"><span class="ico">fn</span><b>calculate_median</b><span class="chip ok">matches offered tool</span></div>
-          <div class="args"><div class="arg"><div class="ak"><code>numbers</code><span class="ptype">array</span><span class="req">required</span></div><div class="av"><code class="av-j">[5,2,9,1,7,4,6,3,8]</code></div></div>
-          <div class="arg"><div class="ak"><code>precision</code><span class="warn-chip">not in schema</span></div><div class="av"><code class="av-j">2</code></div></div></div></div></div></div>
-      <div class="msg tool rise"><div class="role">tool result</div><div class="mbody"><pre class="json"><span class="jk">"median"</span>: <span class="jn">5</span></pre></div></div>
-      <div class="msg assistant rise"><div class="role">assistant</div><div class="mbody"><div class="md"><p>The median of the list is <strong>5</strong>.</p></div></div></div>
-    </aside>
   </div>
 </main>
 

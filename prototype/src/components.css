@@ -466,26 +466,10 @@ details.tool summary b { color: var(--accent); }
     radial-gradient(620px 420px at 70% 96%, color-mix(in srgb, var(--sys-c) 18%, transparent), transparent 70%),
     radial-gradient(520px 360px at 6% 92%, color-mix(in srgb, var(--asst-c) 16%, transparent), transparent 70%); }
 .landing > .wrap { position: relative; z-index: 1; }
-.landing .hero { text-align: left; max-width: none; }
+.landing .hero { text-align: center; max-width: none; }
 .landing .open .field { box-shadow: var(--shadow); border-color: var(--line-strong); background: var(--panel); }
-.landing .signin-row { justify-content: flex-start; }
-.landing .examples { justify-content: flex-start; margin-top: 24px; }
-.landing #examples { justify-content: flex-start; }
+.landing .examples { margin-top: 24px; }
 .landing .shelf-item { border-radius: 12px; }
 .chip-btn { border-color: var(--line-strong); transition: transform .12s, border-color .12s, background .12s; }
 .chip-btn:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
 .hf-btn { box-shadow: 0 6px 18px rgba(255, 210, 30, .35); }
-
-/* sample row on the landing page */
-.preview { background: var(--panel); border: 1px solid var(--line-strong); border-radius: 18px; box-shadow: 0 30px 80px rgba(80, 50, 220, .22); padding: 14px 16px 16px; }
-.preview .pbar { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
-.preview .pbar b { color: var(--accent); font-family: var(--mono); font-size: 12px; }
-.preview .msg, .preview .call { margin: 8px 0; }
-@media (prefers-reduced-motion: no-preference) {
-  .preview > .rise { opacity: 0; animation: rise .5s cubic-bezier(.2, .8, .2, 1) forwards; }
-  .preview > .rise:nth-child(2) { animation-delay: .15s; } .preview > .rise:nth-child(3) { animation-delay: .35s; }
-  .preview > .rise:nth-child(4) { animation-delay: .55s; } .preview > .rise:nth-child(5) { animation-delay: .75s; }
-}
-@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-.preview .arg { grid-template-columns: minmax(110px, 150px) 1fr; }
-.preview .ak { flex-wrap: wrap; }
