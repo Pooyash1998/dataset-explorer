@@ -9,6 +9,8 @@ tool-calling datasets.
 
 ![Dataset Explorer](docs/explorer.png)
 
+**Live:** <https://dataset-explorer-three.vercel.app>
+
 ## Features
 
 - **Open any dataset**: paste `owner/name` or a huggingface.co link. Gated and private datasets work through
