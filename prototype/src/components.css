@@ -479,3 +479,12 @@ details.tool summary b { color: var(--accent); }
 .gh-link { color: var(--muted); background: var(--panel); border: 1px solid var(--line-strong); transition: color .15s, border-color .15s, transform .15s; }
 .gh-link:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
 .topbar .icon-btn.round { width: 32px; height: 32px; min-width: 32px; }
+.gh-float { position: fixed; right: 18px; bottom: 18px; z-index: 40; width: 38px; height: 38px; min-width: 38px; box-shadow: var(--shadow); }
+@media (max-width: 860px) { .gh-float { right: 12px; bottom: 12px; } }
+
+/* ribbon of section toggles */
+.ribbon { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.ribbon-label { font-size: 12px; color: var(--faint); margin-right: 2px; }
+.rchip { font-size: 12.5px; padding: 2px 11px; border-radius: 99px; border: 1px dashed var(--line-strong); color: var(--faint); background: transparent; text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--faint) 60%, transparent); }
+.rchip:hover { border-color: var(--accent); color: var(--accent); }
+.rchip.on { border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); color: var(--accent); font-weight: 600; text-decoration: none; }

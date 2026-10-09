@@ -1,7 +1,7 @@
 import { parseDatasetId, getSplits, getRows, HFError, PAGE_LEN, onRetryNotice } from "./hf.js";
 import { detectPlan, normalizeRow, normalizeLocal, buildFacets } from "./schema.js";
 import { oauthEnabled, oauthToken, session, signIn, signOut, handleRedirect } from "./auth.js";
-import { esc, fmt, highlight, renderRow, renderListItem } from "./render.js";
+import { esc, fmt, highlight, renderRow, renderListItem, SECTIONS, sectionsOf } from "./render.js";
 import * as api from "./remote.js";
 
 const LIST_PAGE = 200;     // rows per page in the list pane
@@ -574,7 +574,34 @@ function applyLocal({ resetSel = false } = {}) {
   renderDetail();
 }
 
+// Sections hidden with the ribbon. Remembered across rows and visits.
+let hiddenSecs = new Set();
+try { hiddenSecs = new Set(JSON.parse(store.get("dx.hidden") || "[]")); } catch {}
+const seenSecs = new Set();
+
+function renderRibbon() {
+  const el = $("ribbon");
+  for (const v of S.page) sectionsOf(v, ctx()).forEach(k => seenSecs.add(k));
+  const show = SECTIONS.filter(([k]) => seenSecs.has(k));
+  el.hidden = S.tab !== "view" || show.length < 2;
+  if (el.hidden) return;
+  el.innerHTML = `<span class="ribbon-label">Show</span>` + show.map(([k, label]) => {
+    const on = !hiddenSecs.has(k);
+    return `<button type="button" class="rchip${on ? " on" : ""}" data-sec="${k}" aria-pressed="${on}">${esc(label)}</button>`;
+  }).join("");
+}
+$("ribbon").addEventListener("click", ev => {
+  const b = ev.target.closest(".rchip");
+  if (!b) return;
+  const k = b.dataset.sec;
+  hiddenSecs.has(k) ? hiddenSecs.delete(k) : hiddenSecs.add(k);
+  store.set("dx.hidden", JSON.stringify([...hiddenSecs]));
+  renderedDetail = null;
+  renderDetail();
+});
+
 const ctx = () => ({
+  hidden: hiddenSecs,
   sel: S.sel, searchRe: S.searchRe, hasTools: S.hasTools, plan: S.plan, tab: S.tab,
   pos: S.sel, count: S.count,
 });
@@ -633,6 +660,7 @@ function renderList(headOnly = false) {
 function renderDetail() {
   const el = $("detail");
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === S.tab));
+  renderRibbon();
   const none = S.sel < 0;
   $("copy").disabled = $("prev").disabled = $("next").disabled = none;
   if (none) { renderedDetail = null; el.innerHTML = `<div class="empty">Select a row to see it here.</div>`; return; }

@@ -137,7 +137,7 @@ export function overlapRegex(view) {
 
 export function renderRow(v, ctx) {
   const hl = ctx.searchRe;
-  const ov = v.tools.length ? overlapRegex(v) : null;
+  const hidden = ctx.hidden || new Set();
   const chips = [
     v.tools.length || ctx.hasTools ? `<span class="chip">${v.n_tools} tool${v.n_tools === 1 ? "" : "s"}</span>` : "",
     v.calls.length ? `<span class="chip is-call">${v.calls.length} call${v.calls.length === 1 ? "" : "s"}</span>` : "",
@@ -151,21 +151,27 @@ export function renderRow(v, ctx) {
   if (ctx.tab === "raw") return head + jsonBlock(v.raw);
 
   const parts = [];
-  if (v.turns.length) parts.push(`<h2>Conversation</h2>${v.turns.map(t => renderTurn(t, hl, v.tools)).join("")}`);
-  for (const r of v.responses) {
-    parts.push(`<h2>${esc(r.label.replace(/_/g, " "))}</h2><div class="msg answer"><div class="mbody">${renderSegs(r.segs, hl, v.tools)}</div></div>`);
+  const turns = v.turns.filter(t => (t.role === "system" ? !hidden.has("system") : !hidden.has("conversation")));
+  if (turns.length) parts.push(`<h2>Conversation</h2>${turns.map(t => renderTurn(t, hl, v.tools)).join("")}`);
+  if (!hidden.has("responses")) {
+    for (const r of v.responses) {
+      parts.push(`<h2>${esc(r.label.replace(/_/g, " "))}</h2><div class="msg answer"><div class="mbody">${renderSegs(r.segs, hl, v.tools)}</div></div>`);
+    }
+    if (ctx.plan?.calls) {
+      parts.push(`<h2>${esc(ctx.plan.calls.replace(/_/g, " "))}</h2>${v.callCol.length
+        ? v.callCol.map((c, i) => renderCall(c, i + 1, v.tools)).join("") : `<div class="muted">No tool calls (empty).</div>`}`);
+    }
   }
-  if (ctx.plan?.calls) {
-    parts.push(`<h2>${esc(ctx.plan.calls.replace(/_/g, " "))}</h2>${v.callCol.length
-      ? v.callCol.map((c, i) => renderCall(c, i + 1, v.tools)).join("") : `<div class="muted">No tool calls (empty).</div>`}`);
+  if (!hidden.has("tools")) {
+    if (v.tools.length) {
+      parts.push(`<h2>Tools offered <span class="count">${v.tools.length}</span>${v.toolsFromSystem ? `<span class="from-sys">from the system prompt</span>` : ""}</h2>${v.tools.map(t => renderTool(t, hl, v.tools.length <= 3)).join("")}`);
+    } else if (ctx.hasTools) parts.push(`<h2>Tools offered</h2><div class="muted">No tools offered.</div>`);
   }
-  if (v.tools.length) {
-    parts.push(`<h2>Tools offered <span class="count">${v.tools.length}</span>${v.toolsFromSystem ? `<span class="from-sys">from the system prompt</span>` : ""}</h2>${v.tools.map(t => renderTool(t, ov, v.tools.length <= 3)).join("")}`);
-  } else if (ctx.hasTools) parts.push(`<h2>Tools offered</h2><div class="muted">No tools offered.</div>`);
-  if (v.extras.length) {
+  if (v.extras.length && !hidden.has("fields")) {
     parts.push(`<h2>${parts.length ? "Other fields" : "Fields"}</h2><div class="kv">${v.extras.map(([k, val, f]) =>
       `<div class="k">${esc(k)}</div><div class="v">${renderValue(val, f)}</div>`).join("")}</div>`);
   }
+  if (!parts.length) parts.push(`<div class="empty"><b>Everything is hidden</b>Turn a section back on in the bar above.</div>`);
   return head + parts.join("");
 }
 
@@ -177,4 +183,15 @@ export function renderListItem(v, i, ctx) {
   if (ctx.hasTools) badges.push(`<span class="muted">${v.n_tools} tool${v.n_tools === 1 ? "" : "s"}</span>`);
   return `<div class="item${i === ctx.sel ? " sel" : ""}" data-i="${i}" role="option">
     <div class="q">${q}</div><div class="meta"><span class="rid">#${esc(v.id ?? v.idx)}</span>${badges.join("")}</div></div>`;
+}
+
+export const SECTIONS = [["system", "System prompt"], ["conversation", "Conversation"], ["responses", "Answers"], ["tools", "Tools offered"], ["fields", "Other fields"]];
+export function sectionsOf(v, ctx) {
+  const out = [];
+  if (v.turns.some(t => t.role === "system")) out.push("system");
+  if (v.turns.some(t => t.role !== "system")) out.push("conversation");
+  if (v.responses.length || ctx.plan?.calls) out.push("responses");
+  if (v.tools.length || ctx.hasTools) out.push("tools");
+  if (v.extras.length) out.push("fields");
+  return out;
 }
