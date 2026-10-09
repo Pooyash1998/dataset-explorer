@@ -27,16 +27,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 let notify = () => {};
 export const onRetryNotice = fn => { notify = fn; };
 
-// Pacing shared by patient (background) requests: the gap between request starts widens on a rate limit and
-// relaxes as requests succeed again.
-const MIN_GAP = 80, MAX_GAP = 6000;
-let gap = MIN_GAP, nextAt = 0;
+// Pacing shared by patient (background) requests. The gap between request starts widens on a rate limit and
+// relaxes slowly. After a rate limit every request waits out a cool-down first, because requests that are
+// blocked still count against the limit.
+const MIN_GAP = 80, MAX_GAP = 1500, MIN_COOL = 20000, MAX_COOL = 90000;
+let gap = MIN_GAP, nextAt = 0, blockedUntil = 0, cool = MIN_COOL, lastOk = 0;
 const aborted = () => new DOMException("Aborted", "AbortError");
 
 async function pace(signal) {
-  const now = Date.now(), at = Math.max(now, nextAt);
+  const at = Math.max(Date.now(), nextAt);
   nextAt = at + gap;
-  if (at > now) await sleep(at - now);
+  if (at > Date.now()) await sleep(at - Date.now());
+  // A cool-down may have started while this request was waiting its turn.
+  while (Date.now() < blockedUntil && !signal?.aborted) await sleep(Math.min(1000, blockedUntil - Date.now()));
   if (signal?.aborted) throw aborted();
 }
 
@@ -52,16 +55,24 @@ async function get(path, params, token, signal, patient = false) {
     // A 429 from the CDN carries no CORS headers, so the browser reports it as a failed fetch (res === null).
     const transient = !res || res.status === 429 || res.status >= 500;
     if (res?.ok) {
-      if (patient) gap = Math.max(MIN_GAP, gap * 0.9);
+      if (patient) { gap = Math.max(MIN_GAP, gap * 0.97); cool = Math.max(MIN_COOL, cool * 0.8); lastOk = Date.now(); }
       if (attempt) notify("");
       return res.json();
     }
+    if (patient && !res && attempt >= 2 && Date.now() - lastOk < 4000) {
+      // Other requests keep succeeding, so this page itself is the problem (the CDN answers oversized pages with a bare 413).
+      throw new HFError("This page of rows is too large to fetch.", { status: 413 });
+    }
     // Rate limits and network errors are waited out for good; a server error that repeats is given up on.
     if (transient && (attempt < 4 || (patient && (!res || res.status === 429 || attempt < 8)))) {
-      const wait = Math.min(1500 * 2 ** Math.min(attempt, 5), 30000);
-      if (patient) { gap = Math.min(MAX_GAP, gap * 2); nextAt = Math.max(nextAt, Date.now() + wait); }
-      notify(patient ? "Hugging Face is rate limiting, resuming shortly\u2026" : "Hugging Face is slow or rate limiting requests, retrying\u2026");
-      await sleep(wait);
+      if (patient && attempt < 2) { await sleep(1000); continue; }
+      if (patient) {
+        if (blockedUntil - Date.now() < cool / 2) { blockedUntil = Date.now() + cool; gap = Math.min(MAX_GAP, Math.max(gap * 2, 300)); cool = Math.min(MAX_COOL, cool * 1.5); }
+        notify(`Hugging Face is rate limiting, resuming in about ${Math.ceil((blockedUntil - Date.now()) / 1000)}s`);
+        continue;
+      }
+      notify("Hugging Face is slow or rate limiting requests, retrying\u2026");
+      await sleep(Math.min(1500 * 2 ** attempt, 30000));
       if (signal?.aborted) throw aborted();
       continue;
     }
@@ -85,6 +96,16 @@ export async function getSplits(dataset, token, signal) {
 }
 
 export async function getRows(dataset, config, split, offset, length, token, signal, patient = false) {
-  const d = await get("/rows", { dataset, config, split, offset, length }, token, signal, patient);
-  return { features: d.features, rows: d.rows, total: d.num_rows_total, partial: !!d.partial };
+  try {
+    const d = await get("/rows", { dataset, config, split, offset, length }, token, signal, patient);
+    return { features: d.features, rows: d.rows, total: d.num_rows_total, partial: !!d.partial };
+  } catch (e) {
+    if (e.status !== 413) throw e;
+    // Too big to send in one piece: fetch it in halves. A single row that is still too big is skipped.
+    if (length <= 1) return { rows: [] };
+    const h = Math.ceil(length / 2);
+    const [x, y] = [await getRows(dataset, config, split, offset, h, token, signal, patient),
+      await getRows(dataset, config, split, offset + h, length - h, token, signal, patient)];
+    return { features: x.features || y.features, rows: [...x.rows, ...y.rows], total: x.total ?? y.total, partial: x.partial || y.partial };
+  }
 }
