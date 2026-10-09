@@ -154,3 +154,35 @@ test("markdown leaves snake_case and arithmetic alone", () => {
   const html = renderMarkdown("call get_user_name with 2 * 3 * 4");
   assert.ok(!html.includes("<em>"));
 });
+
+import { toolsFromText } from "../prototype/js/schema.js";
+
+test("tools written into a glaive style system prompt", () => {
+  const sys = `SYSTEM: You are a helpful assistant with access to the following functions. Use them if required -
+{
+    "name": "calculate_median",
+    "description": "Calculate the median of a list of numbers",
+    "parameters": { "type": "object", "properties": { "numbers": { "type": "array", "items": { "type": "number" }, "description": "A list of numbers" } }, "required": ["numbers"] }
+}
+
+{ "name": "other", "description": "Another one", "parameters": { "type": "object", "properties": {} } }`;
+  const t = toolsFromText(sys);
+  assert.deepEqual(t.map(x => x.name), ["calculate_median", "other"]);
+  assert.equal(t[0].params[0].required, true);
+});
+
+test("tools in a ToolACE style array and a Hermes <tools> block", () => {
+  const a = toolsFromText('Here is a list of functions in JSON format that you can invoke:\n[{"name": "a", "description": "d", "parameters": {"type": "dict", "properties": {}}}]\nShould you decide...');
+  assert.equal(a[0].name, "a");
+  const b = toolsFromText('<tools>\n[{"type": "function", "function": {"name": "b", "description": "d", "parameters": {"type": "object", "properties": {}}}}]\n</tools>\nFor each call use <tool_call>\n{"name": <function-name>, "arguments": <args-dict>}\n</tool_call>');
+  assert.deepEqual(b.map(x => x.name), ["b"]);
+});
+
+test("a system prompt with no tool JSON yields nothing, and views pick up system tools", () => {
+  assert.deepEqual(toolsFromText("You are helpful. Reply as {name: x}."), []);
+  const row = { system: 'SYSTEM: functions -\n{"name": "f", "description": "d", "parameters": {"type": "object", "properties": {}}}', chat: "USER: hi\n\n\nASSISTANT: yo" };
+  const { v } = view([row]);
+  assert.equal(v.tools[0].name, "f");
+  assert.equal(v.n_tools, 1);
+  assert.equal(v.toolsFromSystem, true);
+});

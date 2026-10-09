@@ -303,6 +303,42 @@ export function normTool(t) {
   return { name: String(t.name ?? ""), description: String(t.description ?? ""), params };
 }
 
+// ---- tools written into a system prompt ----------------------------------------
+// Glaive, ToolACE and Hermes put the function definitions in the system prompt as JSON. Find them there.
+function balanced(text, start) {
+  const open = text[start], close = open === "{" ? "}" : "]";
+  let depth = 0, inStr = false, q = "";
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (c === "\\") i++;
+      else if (c === q) inStr = false;
+    } else if (c === '"') { inStr = true; q = c; }
+    else if (c === open) depth++;
+    else if (c === close && --depth === 0) return i;
+  }
+  return -1;
+}
+
+export function toolsFromText(text) {
+  if (typeof text !== "string" || text.length < 20 || text.length > 80000) return [];
+  const found = [];
+  let tries = 0;
+  for (let i = 0; i < text.length && tries < 150; i++) {
+    const c = text[i];
+    if (c !== "{" && c !== "[") continue;
+    if (!/^\s*[{"']/.test(text.slice(i + 1, i + 60))) continue;
+    tries++;
+    const end = balanced(text, i);
+    if (end < 0) continue;
+    const j = looseParse(text.slice(i, end + 1));
+    const list = Array.isArray(j) ? j : j && typeof j === "object" ? [j] : [];
+    const defs = list.map(tryJson).filter(isToolDef);
+    if (defs.length && defs.length === list.length) { found.push(...defs); i = end; }
+  }
+  return found.map(normTool).filter(Boolean);
+}
+
 // ---- rows --------------------------------------------------------------------
 const textOf = segs => segs.filter(s => s.t === "text").map(s => s.v).join("\n");
 
@@ -336,6 +372,16 @@ export function normalizeRow(plan, item, features) {
   const callCol = plan.calls ? callsFrom(raw[plan.calls]) : [];
   const tools = plan.tools ? (asList(raw[plan.tools]) || []).map(normTool).filter(Boolean) : [];
 
+  // No tools column: look for definitions written into the system prompt.
+  let fromSystem = false;
+  if (!tools.length) {
+    for (const t of turns) {
+      if (t.role !== "system") continue;
+      const found = toolsFromText(textOf(t.segs));
+      if (found.length) { tools.push(...found); t.hasTools = true; fromSystem = true; }
+    }
+  }
+
   const inlineCalls = [...turns, ...responses].flatMap(x => x.segs).filter(s => s.t === "call");
   const calls = [...callCol, ...inlineCalls];
 
@@ -361,7 +407,7 @@ export function normalizeRow(plan, item, features) {
   const v = {
     idx: item.row_idx, raw, turns, responses, calls, callCol, tools, extras,
     trunc: item.truncated_cells?.length ? item.truncated_cells : null,
-    n_tools: tools.length, overlap, kind,
+    n_tools: tools.length, overlap, kind, toolsFromSystem: fromSystem,
     multi: turns.filter(t => t.role === "user").length > 1 || turns.some(t => t.role === "system"),
   };
   v.preview = previewOf(v, plan);

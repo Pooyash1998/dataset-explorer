@@ -40,17 +40,27 @@ function renderArgValue(v) {
   return `<code class="av-j">${esc(v)}</code>`;
 }
 
-function renderArgs(args) {
+function renderArgs(args, tool) {
+  const params = new Map((tool?.params || []).map(p => [p.name, p]));
   if (isObj(args) && Object.keys(args).length) {
-    return `<div class="args">${Object.entries(args).map(([k, v]) => `<div class="arg"><code class="ak">${esc(k)}</code>
-      <div class="av">${renderArgValue(v)}</div></div>`).join("")}</div>`;
+    const rows = Object.entries(args).map(([k, v]) => {
+      const p = params.get(k);
+      const badge = p ? `<span class="ptype">${esc(p.type)}</span>${p.required ? `<span class="req">required</span>` : ""}`
+        : tool ? `<span class="warn-chip">not in schema</span>` : "";
+      return `<div class="arg"><div class="ak"><code>${esc(k)}</code><div class="abadges">${badge}</div></div><div class="av">${renderArgValue(v)}</div></div>`;
+    }).join("");
+    const missing = tool ? tool.params.filter(p => p.required && !(p.name in args)).map(p => p.name) : [];
+    return `<div class="args">${rows}</div>${missing.length ? `<div class="missing">missing required: ${missing.map(m => `<code>${esc(m)}</code>`).join(", ")}</div>` : ""}`;
   }
-  if (isObj(args)) return `<div class="muted small">no arguments</div>`;
+  const missing = tool ? tool.params.filter(p => p.required).map(p => p.name) : [];
+  if (isObj(args)) return `<div class="muted small">no arguments</div>${missing.length ? `<div class="missing">missing required: ${missing.map(m => `<code>${esc(m)}</code>`).join(", ")}</div>` : ""}`;
   return jsonBlock(args);
 }
 
-function renderCall(c, i) {
-  return `<div class="call"><div class="call-head"><span class="ico">fn</span><b>${esc(c.name || "(unnamed call)")}</b>${i != null ? `<span class="muted small">call ${i}</span>` : ""}</div>${renderArgs(c.args)}</div>`;
+function renderCall(c, i, tools = []) {
+  const tool = tools.find(t => t.name === c.name);
+  const status = tools.length ? (tool ? `<span class="chip ok">matches offered tool</span>` : `<span class="warn-chip">not in offered tools</span>`) : "";
+  return `<div class="call"><div class="call-head"><span class="ico">fn</span><b>${esc(c.name || "(unnamed call)")}</b>${i != null ? `<span class="muted small">call ${i}</span>` : ""}${status}</div>${renderArgs(c.args, tool)}</div>`;
 }
 
 // Text that is really a JSON document is shown as one.
@@ -66,29 +76,30 @@ function renderText(v, hl) {
   return j !== undefined ? jsonBlock(j) : `<div class="md">${renderMarkdown(v, hl)}</div>`;
 }
 
-function renderSegs(segs, hl) {
+function renderSegs(segs, hl, tools = []) {
   let n = 0;
   return segs.map(s => {
     if (s.t === "text") return renderText(s.v, hl);
     if (s.t === "think") return `<details class="think"><summary>thinking</summary>${renderText(s.v, hl)}</details>`;
-    if (s.t === "call") return renderCall(s, ++n);
+    if (s.t === "call") return renderCall(s, ++n, tools);
     if (s.t === "badcall") return `<div class="call bad"><div class="call-head"><span class="ico">fn</span><b>tool call</b><span class="muted small">could not be parsed</span></div><pre class="json">${esc(s.v)}</pre></div>`;
     if (s.t === "result") return typeof s.v === "string" ? renderText(s.v, hl) : jsonBlock(s.v);
     return "";
   }).join("");
 }
 
-function renderTurn(t, hl) {
-  let body = renderSegs(t.segs, hl) || `<span class="muted">(empty)</span>`;
+function renderTurn(t, hl, tools = []) {
+  let body = renderSegs(t.segs, hl, tools) || `<span class="muted">(empty)</span>`;
   const len = t.segs.reduce((n, s) => n + (typeof s.v === "string" ? s.v.length : 0), 0);
-  if (t.role === "system" && len > 600) {
+  if (t.role === "system" && (len > 600 || t.hasTools)) {
     const first = (t.segs.find(s => s.t === "text")?.v || "").replace(/\s+/g, " ").trim().slice(0, 180);
     body = `<details class="long"><summary><span class="muted">${esc(first)}\u2026</span> <span class="more">show all ${fmt(len)} characters</span></summary>${body}</details>`;
   }
   if (t.role !== "system" && len > 1800) {
     body = `<div class="clamp"><div class="clamp-in">${body}</div><button type="button" class="clamp-btn" data-more="${fmt(len)}">Show all ${fmt(len)} characters</button></div>`;
   }
-  return `<div class="msg ${esc(t.role)}"><div class="role">${esc(t.role)}</div><div class="mbody">${body}</div></div>`;
+  const label = t.role === "tool" ? "tool result" : t.role;
+  return `<div class="msg ${esc(t.role)}"><div class="role">${esc(label)}</div><div class="mbody">${body}</div></div>`;
 }
 
 function renderTool(t, overlapRe, open) {
@@ -140,16 +151,16 @@ export function renderRow(v, ctx) {
   if (ctx.tab === "raw") return head + jsonBlock(v.raw);
 
   const parts = [];
-  if (v.turns.length) parts.push(`<h2>Conversation</h2>${v.turns.map(t => renderTurn(t, hl)).join("")}`);
+  if (v.turns.length) parts.push(`<h2>Conversation</h2>${v.turns.map(t => renderTurn(t, hl, v.tools)).join("")}`);
   for (const r of v.responses) {
-    parts.push(`<h2>${esc(r.label.replace(/_/g, " "))}</h2><div class="msg answer"><div class="mbody">${renderSegs(r.segs, hl)}</div></div>`);
+    parts.push(`<h2>${esc(r.label.replace(/_/g, " "))}</h2><div class="msg answer"><div class="mbody">${renderSegs(r.segs, hl, v.tools)}</div></div>`);
   }
   if (ctx.plan?.calls) {
     parts.push(`<h2>${esc(ctx.plan.calls.replace(/_/g, " "))}</h2>${v.callCol.length
-      ? v.callCol.map((c, i) => renderCall(c, i + 1)).join("") : `<div class="muted">No tool calls (empty).</div>`}`);
+      ? v.callCol.map((c, i) => renderCall(c, i + 1, v.tools)).join("") : `<div class="muted">No tool calls (empty).</div>`}`);
   }
   if (v.tools.length) {
-    parts.push(`<h2>Tools offered <span class="count">${v.tools.length}</span></h2>${v.tools.map(t => renderTool(t, ov, v.tools.length <= 3)).join("")}`);
+    parts.push(`<h2>Tools offered <span class="count">${v.tools.length}</span>${v.toolsFromSystem ? `<span class="from-sys">from the system prompt</span>` : ""}</h2>${v.tools.map(t => renderTool(t, ov, v.tools.length <= 3)).join("")}`);
   } else if (ctx.hasTools) parts.push(`<h2>Tools offered</h2><div class="muted">No tools offered.</div>`);
   if (v.extras.length) {
     parts.push(`<h2>${parts.length ? "Other fields" : "Fields"}</h2><div class="kv">${v.extras.map(([k, val, f]) =>
