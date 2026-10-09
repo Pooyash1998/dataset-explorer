@@ -1,5 +1,6 @@
 // HTML renderers for one row. Everything returns strings; app.js owns the DOM and events.
-import { tryJson } from "./schema.js";
+import { tryJson, looseParse, STOP } from "./schema.js";
+import { renderMarkdown } from "./markdown.js";
 
 export const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 export const fmt = n => Number(n).toLocaleString("en-US");
@@ -29,10 +30,20 @@ function jsonBlock(v) {
       : lit ? `<span class="jl">${lit}</span>` : `<span class="jn">${num}</span>`)}</pre>`;
 }
 
+function renderArgValue(v) {
+  if (typeof v === "string") return `<span class="av-s">${esc(v)}</span>`;
+  if (v === null || v === undefined) return `<span class="muted">null</span>`;
+  if (typeof v === "object") {
+    const flat = JSON.stringify(v);
+    return flat.length <= 70 ? `<code class="av-j">${esc(flat)}</code>` : jsonBlock(v);
+  }
+  return `<code class="av-j">${esc(v)}</code>`;
+}
+
 function renderArgs(args) {
   if (isObj(args) && Object.keys(args).length) {
     return `<div class="args">${Object.entries(args).map(([k, v]) => `<div class="arg"><code class="ak">${esc(k)}</code>
-      <span class="av">${typeof v === "string" ? esc(v) : esc(JSON.stringify(v))}</span></div>`).join("")}</div>`;
+      <div class="av">${renderArgValue(v)}</div></div>`).join("")}</div>`;
   }
   if (isObj(args)) return `<div class="muted small">no arguments</div>`;
   return jsonBlock(args);
@@ -42,13 +53,27 @@ function renderCall(c, i) {
   return `<div class="call"><div class="call-head"><span class="ico">fn</span><b>${esc(c.name || "(unnamed call)")}</b>${i != null ? `<span class="muted small">call ${i}</span>` : ""}</div>${renderArgs(c.args)}</div>`;
 }
 
+// Text that is really a JSON document is shown as one.
+function asJson(text) {
+  const t = text.trim();
+  if (t.length < 2 || !(t[0] === "{" || t[0] === "[") || !(t.endsWith("}") || t.endsWith("]"))) return undefined;
+  const j = looseParse(t);
+  return j && typeof j === "object" && Object.keys(j).length ? j : undefined;
+}
+
+function renderText(v, hl) {
+  const j = asJson(v);
+  return j !== undefined ? jsonBlock(j) : `<div class="md">${renderMarkdown(v, hl)}</div>`;
+}
+
 function renderSegs(segs, hl) {
   let n = 0;
   return segs.map(s => {
-    if (s.t === "text") return `<div class="txt">${highlight(s.v, hl)}</div>`;
-    if (s.t === "think") return `<details class="think"><summary>thinking</summary><div class="txt">${highlight(s.v, hl)}</div></details>`;
+    if (s.t === "text") return renderText(s.v, hl);
+    if (s.t === "think") return `<details class="think"><summary>thinking</summary>${renderText(s.v, hl)}</details>`;
     if (s.t === "call") return renderCall(s, ++n);
-    if (s.t === "result") return typeof s.v === "string" ? `<div class="txt">${highlight(s.v, hl)}</div>` : jsonBlock(s.v);
+    if (s.t === "badcall") return `<div class="call bad"><div class="call-head"><span class="ico">fn</span><b>tool call</b><span class="muted small">could not be parsed</span></div><pre class="json">${esc(s.v)}</pre></div>`;
+    if (s.t === "result") return typeof s.v === "string" ? renderText(s.v, hl) : jsonBlock(s.v);
     return "";
   }).join("");
 }
@@ -59,6 +84,9 @@ function renderTurn(t, hl) {
   if (t.role === "system" && len > 600) {
     const first = (t.segs.find(s => s.t === "text")?.v || "").replace(/\s+/g, " ").trim().slice(0, 180);
     body = `<details class="long"><summary><span class="muted">${esc(first)}\u2026</span> <span class="more">show all ${fmt(len)} characters</span></summary>${body}</details>`;
+  }
+  if (t.role !== "system" && len > 1800) {
+    body = `<div class="clamp"><div class="clamp-in">${body}</div><button type="button" class="clamp-btn" data-more="${fmt(len)}">Show all ${fmt(len)} characters</button></div>`;
   }
   return `<div class="msg ${esc(t.role)}"><div class="role">${esc(t.role)}</div><div class="mbody">${body}</div></div>`;
 }
@@ -92,7 +120,7 @@ function renderValue(v, feat) {
 
 export function overlapRegex(view) {
   const text = view.turns.filter(t => t.role === "user").map(t => t.segs.filter(s => s.t === "text").map(s => s.v).join(" ")).join(" ");
-  const ws = [...new Set(text.toLowerCase().match(/[a-z]{4,}/g) || [])].slice(0, 80);
+  const ws = [...new Set(text.toLowerCase().match(/[a-z]{4,}/g) || [])].filter(w => !STOP.has(w)).slice(0, 80);
   return ws.length ? new RegExp(`\\b(?:${ws.join("|")})\\b`, "gi") : null;
 }
 

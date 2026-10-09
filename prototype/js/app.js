@@ -6,7 +6,8 @@ import * as api from "./remote.js";
 
 const LIST_PAGE = 200;     // rows per page in the list pane
 const BLOCK_ROWS = 300;    // loaded before the explorer opens
-const AUTO_ROWS = 1000;    // loaded quietly afterwards
+const AUTO_ROWS = 50000;   // keep loading quietly up to this many rows
+const AUTO_CHARS = 40e6;   // ...or until roughly this much text is in memory
 const MORE_ROWS = 5000;
 const CONCURRENCY = 3;
 const EXAMPLES = [
@@ -31,7 +32,7 @@ function newState(src) {
     src, local: src.kind === "local", plan: null, byIdx: new Map(), pages: new Set(), views: [], filtered: [],
     defs: [], filters: {}, expanded: new Set(), query: "", matchRe: null, searchRe: null, regexBad: false,
     sel: -1, start: 0, tab: "view", total: 0, partial: false, hasTools: false, busy: false, error: "", splits: [],
-    remote: src.kind === "remote", count: 0, page: [], base: 0, reqId: 0, rx: "", counts: {},
+    chars: 0, quiet: false, remote: src.kind === "remote", count: 0, page: [], base: 0, reqId: 0, rx: "", counts: {},
     index: { ready: true, progress: 1, stage: "", rows: 0 },
   };
 }
@@ -167,7 +168,7 @@ onRetryNotice(msg => {
   const el = $("load-note");
   el.textContent = msg;
   el.hidden = !msg || $("loading").hidden;
-  if (S && !$("explorer").hidden) { S.note = msg; setStatus(); }
+  if (S && !$("explorer").hidden && !S.quiet) { S.note = msg; setStatus(); }
 });
 
 const STEPS = ["Finding the dataset", "Reading its schema", "Loading the first rows"];
@@ -332,7 +333,7 @@ async function openHF(id, wantConfig, wantSplit) {
     openExplorer();
     // Keep going quietly so facets and search see more of the dataset.
     const more = pagesFor(Math.min(AUTO_ROWS, st.total)).filter(o => !st.pages.has(o));
-    if (more.length) backgroundLoad(more, ctl);
+    if (more.length) backgroundLoad(more, ctl, { quiet: true });
   } catch (e) {
     if (e.name === "AbortError") return;
     loadFail(step, e);
@@ -343,7 +344,10 @@ const pagesFor = n => Array.from({ length: Math.ceil(n / PAGE_LEN) }, (_, i) => 
 
 function ingest(items, offset) {
   for (const it of items) {
-    if (!S.byIdx.has(it.row_idx)) S.byIdx.set(it.row_idx, normalizeRow(S.plan, it, S.features));
+    if (S.byIdx.has(it.row_idx)) continue;
+    const v = normalizeRow(S.plan, it, S.features);
+    S.byIdx.set(it.row_idx, v);
+    S.chars += v._s.length;
   }
   S.pages.add(offset);
 }
@@ -352,7 +356,7 @@ async function loadPages(offsets, signal, onProgress) {
   const st = S;
   let done = 0, failed = null, next = 0;
   const worker = async () => {
-    while (next < offsets.length && !failed && !signal.aborted) {
+    while (next < offsets.length && !failed && !signal.aborted && !(st.quiet && st.chars > AUTO_CHARS)) {
       const off = offsets[next++];
       try {
         const d = await getRows(st.src.id, st.src.config, st.src.split, off, PAGE_LEN, st.src.token, signal);
@@ -371,18 +375,19 @@ async function loadPages(offsets, signal, onProgress) {
   if (failed) throw failed;
 }
 
-async function backgroundLoad(offsets, ctl = loadCtl) {
+// quiet: no spinner, no notices. Used for the automatic loading that follows opening a dataset.
+async function backgroundLoad(offsets, ctl = loadCtl, { quiet = false } = {}) {
   const st = S;
   if (!ctl || st.busy) return;
-  st.busy = true; st.error = "";
+  st.busy = true; st.quiet = quiet; st.error = "";
   setStatus();
   try {
     await loadPages(offsets, ctl.signal);
   } catch (e) {
     st.error = e.message;
-    toast(`Stopped loading rows: ${e.message}`);
+    if (!quiet) toast(`Stopped loading rows: ${e.message}`);
   }
-  st.busy = false;
+  st.busy = false; st.quiet = false;
   if (S === st) { refresh(); setStatus(); }
 }
 
@@ -460,16 +465,19 @@ function setStatus() {
     return;
   }
   const n = S.views.length;
-  $("status-spin").hidden = !S.busy;
-  if (S.note) { $("status-spin").hidden = false; $("status-text").textContent = S.note; return; }
+  $("status-spin").hidden = !S.busy || S.quiet;
+  $("more-btn").hidden = S.local || S.remote || S.quiet || n >= S.total;
+  if (S.note && !S.quiet) { $("status-spin").hidden = false; $("status-text").textContent = S.note; return; }
   $("status-text").textContent = S.local ? `${fmt(n)} rows`
-    : `${fmt(n)} of ${fmt(S.total)} rows loaded${S.partial ? " (partial dataset)" : ""}${S.busy ? "…" : ""}`;
+    : `${fmt(n)} of ${fmt(S.total)} rows loaded${S.partial ? " (partial dataset)" : ""}${S.busy && !S.quiet ? "…" : ""}`;
   $("more-btn").disabled = false;
 }
 
 function scheduleRefresh() {
   if (refreshTimer) return;
-  refreshTimer = setTimeout(() => { refreshTimer = 0; if (S) { refresh(); setStatus(); } }, 250);
+  // Rebuilding facets is linear in the loaded rows, so back off as the dataset grows.
+  const wait = Math.min(4000, 250 + S.byIdx.size / 8);
+  refreshTimer = setTimeout(() => { refreshTimer = 0; if (S) { refresh(); setStatus(); } }, wait);
 }
 
 // Data changed: rebuild facets, then re-filter.
@@ -558,8 +566,11 @@ function applyLocal({ resetSel = false } = {}) {
   S.start = Math.min(S.start, Math.max(0, Math.floor((out.length - 1) / LIST_PAGE) * LIST_PAGE));
   S.count = out.length; S.base = S.views.length;
   S.page = out.slice(S.start, S.start + LIST_PAGE);
+  const key = S.page.map(v => v.idx).join(",") + "|" + S.sel;
+  const same = key === S.pageKey;
+  S.pageKey = key;
   renderFilters();
-  renderList();
+  renderList(same);
   renderDetail();
 }
 
@@ -602,13 +613,14 @@ function renderFilters() {
   }).join("");
 }
 
-function renderList() {
+function renderList(headOnly = false) {
   const total = S.count, start = S.start, end = Math.min(start + LIST_PAGE, total);
   const filtering = total !== S.base;
   const pager = total > LIST_PAGE ? `<span class="pages"><button id="pg-prev" ${start ? "" : "disabled"} aria-label="Previous page">&lsaquo;</button>
     <span>${fmt(start + 1)}&ndash;${fmt(end)}</span><button id="pg-next" ${end < total ? "" : "disabled"} aria-label="Next page">&rsaquo;</button></span>` : "";
   $("list-head").innerHTML = `<span><b>${fmt(total)}</b>${filtering ? ` of ${fmt(S.base)}` : ""} rows</span>${pager}
     <button class="mobile-only" id="show-filters">Filters</button>`;
+  if (headOnly) return;
   if (!total) {
     const any = Object.keys(S.filters).length || S.query || S.matchRe;
     $("list").innerHTML = `<div class="empty"><b>No rows match</b>${any ? `Try removing a filter or changing the search.<br><br><button id="empty-clear">Clear all</button>` : "This split has no rows."}</div>`;
@@ -751,6 +763,12 @@ $("copy").onclick = async () => {
   try { await navigator.clipboard.writeText(JSON.stringify(v.raw, null, 2)); toast("Row copied as JSON"); }
   catch { toast("Could not copy"); }
 };
+$("detail").addEventListener("click", ev => {
+  const b = ev.target.closest(".clamp-btn");
+  if (!b) return;
+  const box = b.parentElement, open = box.classList.toggle("open");
+  b.textContent = open ? "Show less" : `Show all ${b.dataset.more} characters`;
+});
 document.querySelector(".tabs").addEventListener("click", ev => {
   const t = ev.target.closest(".tab");
   if (t && S) { S.tab = t.dataset.tab; renderDetail(); }

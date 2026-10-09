@@ -97,3 +97,60 @@ test("facets: derived and generated from columns", () => {
   assert.ok(keys.includes("col:score"));
   assert.equal(views[1].f.n_calls, "1");
 });
+
+import { looseParse, cleanText, normCall } from "../prototype/js/schema.js";
+import { renderMarkdown } from "../prototype/js/markdown.js";
+
+test("looseParse reads Python-style literals", () => {
+  assert.deepEqual(looseParse("{'a': [1, 'x', True, None,], \"b\": 'it\\'s'}"), { a: [1, "x", true, null], b: "it's" });
+  assert.equal(looseParse("not json"), undefined);
+});
+
+test("literal backslash-n becomes a line break only when it dominates", () => {
+  assert.equal(cleanText("a\\nb\\nc"), "a\nb\nc");
+  assert.equal(cleanText("line1\nline2 and a literal \\n"), "line1\nline2 and a literal \\n");
+});
+
+test("tool call with literal newlines and Python lists (hermes row 1864 shape)", () => {
+  const text = `<tool_call>\\n{"arguments": {"queries": ['one', 'two'], "name": "Extractor"}}\\n</tool_call>`;
+  const segs = segments(text);
+  assert.equal(segs.length, 1);
+  assert.equal(segs[0].t, "call");
+  assert.equal(segs[0].name, "Extractor");
+  assert.deepEqual(segs[0].args, { queries: ["one", "two"] });
+});
+
+test("normCall accepts OpenAI style calls with JSON string arguments", () => {
+  const c = normCall({ id: "1", type: "function", function: { name: "f", arguments: '{"x": 1}' } });
+  assert.equal(c.name, "f");
+  assert.deepEqual(c.args, { x: 1 });
+});
+
+test("system prompts are not parsed for tool calls", () => {
+  const row = { conversations: [{ from: "system", value: "Reply in <tool_call>{\"name\": <fn>}</tool_call> form" }, { from: "human", value: "hi" }] };
+  const { v } = view([row]);
+  assert.deepEqual(v.turns[0].segs.map(s => s.t), ["text"]);
+});
+
+test("markdown never lets raw HTML through", () => {
+  const html = renderMarkdown('<script>alert(1)</script> and <img src=x onerror=1> [x](javascript:alert(1))');
+  assert.ok(!html.includes("<script"));
+  assert.ok(!html.includes("<img"));
+  assert.ok(!html.includes('href="javascript'));
+});
+
+test("markdown: headings, lists, code, tables, tags, search marks", () => {
+  const md = "# Title\n\n- one\n- **two**\n\n```js\nlet a = 1 < 2\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n<passage>x</passage>";
+  const html = renderMarkdown(md, /two/gi);
+  assert.match(html, /class="mh mh1">Title/);
+  assert.match(html, /<ul><li[^>]*>one<\/li>/);
+  assert.match(html, /<strong><mark>two<\/mark><\/strong>/);
+  assert.match(html, /let a = 1 &lt; 2/);
+  assert.match(html, /<th>a<\/th>/);
+  assert.match(html, /class="xtag">&lt;passage&gt;/);
+});
+
+test("markdown leaves snake_case and arithmetic alone", () => {
+  const html = renderMarkdown("call get_user_name with 2 * 3 * 4");
+  assert.ok(!html.includes("<em>"));
+});

@@ -10,7 +10,7 @@ const SYSTEM_NAMES = ["system", "system_prompt", "system_message"];
 const RESPONSE_NAMES = ["chosen_response", "rejected_response", "chosen", "rejected", "response", "output", "completion",
   "target", "answer", "reply"];
 
-const STOP = new Set(("the a an and or of to for in on at by with from is are be can you me my your i it " +
+export const STOP = new Set(("the a an and or of to for in on at by with from is are be can you me my your i it " +
   "this that what how please get find give tell about show which who when where would like want need").split(" "));
 const REFUSE_RE = /\b(unable|can't|cannot|can not|not able|don't have|do not have|beyond|outside|not possible|isn't possible|not available|limited to|only (?:able|designed|capable))\b/i;
 
@@ -20,11 +20,61 @@ const ROLE_MAP = {
   tool_response: "tool",
 };
 
+// Python-style literals ('single quotes', True/False/None, trailing commas) rewritten as JSON. null if it is not one.
+function pyToJson(t) {
+  let out = "", i = 0;
+  const n = t.length;
+  while (i < n) {
+    const c = t[i];
+    if (c === '"' || c === "'") {
+      let j = i + 1, str = "";
+      while (j < n && t[j] !== c) {
+        if (t[j] === "\\" && j + 1 < n) {
+          const e = t[j + 1];
+          if (e === "n") str += "\n"; else if (e === "t") str += "\t"; else if (e === "r") str += "\r";
+          else if (e === "u" && /^[0-9a-fA-F]{4}$/.test(t.slice(j + 2, j + 6))) { str += String.fromCharCode(parseInt(t.slice(j + 2, j + 6), 16)); j += 4; }
+          else str += e;
+          j += 2;
+        } else str += t[j++];
+      }
+      if (j >= n) return null;
+      out += JSON.stringify(str);
+      i = j + 1;
+    } else if (c === "," ) {
+      // drop a trailing comma
+      const m = t.slice(i + 1).match(/^\s*([\]}])/);
+      if (!m) out += c;
+      i++;
+    } else if (/[A-Za-z_]/.test(c)) {
+      let j = i;
+      while (j < n && /[\w.]/.test(t[j])) j++;
+      const w = t.slice(i, j);
+      out += w === "True" ? "true" : w === "False" ? "false" : w === "None" ? "null" : w;
+      i = j;
+    } else { out += c; i++; }
+  }
+  return out;
+}
+
+// JSON.parse that also copes with Python-style literals and literal "\n" around the value. undefined if hopeless.
+export function looseParse(v) {
+  if (typeof v !== "string") return v;
+  let t = v.trim();
+  try { return JSON.parse(t); } catch {}
+  t = t.replace(/^(?:\\[nrt]|\s)+|(?:\\[nrt]|\s)+$/g, "");
+  if (!(t.startsWith("{") || t.startsWith("["))) return undefined;
+  try { return JSON.parse(t); } catch {}
+  const j = pyToJson(t);
+  if (j == null) return undefined;
+  try { return JSON.parse(j); } catch { return undefined; }
+}
+
 export const tryJson = v => {
   if (typeof v !== "string") return v;
-  const s = v.trim();
+  const s = v.trim().replace(/^(?:\\[nrt]|\s)+/, "");
   if (!(s.startsWith("{") || s.startsWith("["))) return v;
-  try { return JSON.parse(s); } catch { return v; }
+  const j = looseParse(s);
+  return j === undefined ? v : j;
 };
 const asList = v => {
   v = tryJson(v);
@@ -113,16 +163,31 @@ export function detectPlan(features, sampleRows) {
 // ---- content parsing ---------------------------------------------------------
 const TRANSCRIPT_RE = /(?:^|\n)\s*(?:USER|ASSISTANT|HUMAN):\s/;
 const SPEAKER_RE = /(?:^|\n)\s*(USER|ASSISTANT|HUMAN|SYSTEM|FUNCTION RESPONSE|TOOL):\s*/g;
-const TAG_RE = /<(TOOLCALL|tool_call|think|tool_response)>([\s\S]*?)<\/\1>/gi;
+const TAG_RE = /<(TOOLCALL|tool_calls?|function_calls?|think|thinking|reasoning|tool_response|tool_result|function_response|observation)>([\s\S]*?)(?:<\/\1>|$)/gi;
+const RESULT_TAGS = new Set(["tool_response", "tool_result", "function_response", "observation"]);
+const THINK_TAGS = new Set(["think", "thinking", "reasoning"]);
+
+// Some datasets store newlines as the two characters backslash and n. Show them as line breaks.
+export function cleanText(t) {
+  if (typeof t !== "string" || !t.includes("\\")) return t;
+  const lit = (t.match(/\\n/g) || []).length;
+  if (!lit || lit <= (t.match(/\n/g) || []).length) return t;
+  return t.replace(/\\r\\n|\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"');
+}
 
 export function normCall(c) {
   c = tryJson(c);
   if (!isObj(c)) return { name: "", args: c, raw: c };
   const f = isObj(c.function) ? c.function : c;
   let name = f.name, args = f.arguments ?? f.parameters ?? f.args;
+  // Malformed rows sometimes nest the name inside the arguments: {"arguments": {..., "name": "f"}}
+  if (name === undefined && isObj(args) && typeof args.name === "string") {
+    name = args.name;
+    args = Object.fromEntries(Object.entries(args).filter(([k]) => k !== "name"));
+  }
   if (name === undefined) {
     const k = Object.keys(c);
-    if (k.length === 1) { name = k[0]; args = c[k[0]]; }
+    if (k.length === 1 && !["arguments", "parameters", "args"].includes(k[0])) { name = k[0]; args = c[k[0]]; }
   }
   return { name: String(name ?? ""), args: tryJson(args ?? {}), raw: c };
 }
@@ -172,17 +237,18 @@ export function segments(text, inner = false) {
   while ((m = TAG_RE.exec(text))) {
     if (m.index > last) out.push({ t: "text", v: text.slice(last, m.index) });
     const tag = m[1].toLowerCase(), body = m[2].trim();
-    if (tag === "think") out.push({ t: "think", v: body });
-    else if (tag === "tool_response") out.push({ t: "result", v: tryJson(body) });
+    if (THINK_TAGS.has(tag)) out.push({ t: "think", v: cleanText(body) });
+    else if (RESULT_TAGS.has(tag)) out.push({ t: "result", v: tryJson(cleanText(body)) });
     else {
       const calls = callsFrom(body);
       if (calls.length) calls.forEach(c => out.push({ t: "call", ...c }));
-      else out.push({ t: "text", v: m[0] });
+      else out.push({ t: "badcall", v: cleanText(body) });
     }
     last = TAG_RE.lastIndex;
+    if (m[0] === "") TAG_RE.lastIndex++;
   }
   if (last < text.length) out.push({ t: "text", v: text.slice(last) });
-  return out.filter(s => s.t !== "text" || s.v.trim());
+  return out.map(s => (s.t === "text" ? { ...s, v: cleanText(s.v) } : s)).filter(s => s.t !== "text" || s.v.trim());
 }
 
 function contentText(c) {
@@ -194,8 +260,10 @@ function contentText(c) {
 function normTurn(m) {
   const roleRaw = String(m.role ?? m.from ?? "").toLowerCase();
   const role = ROLE_MAP[roleRaw] || roleRaw || "unknown";
-  let segs = role === "tool" ? [{ t: "result", v: tryJson(contentText(m.content ?? m.value ?? m.text)) }]
-    : segments(contentText(m.content ?? m.value ?? m.text));
+  const raw = contentText(m.content ?? m.value ?? m.text);
+  let segs = role === "tool" ? [{ t: "result", v: tryJson(cleanText(raw)) }]
+    : role === "system" ? [{ t: "text", v: cleanText(raw) }]
+    : segments(raw);
   if (m.tool_calls) callsFrom(m.tool_calls).forEach(c => segs.push({ t: "call", ...c }));
   if (m.function_call) segs.push({ t: "call", ...normCall(m.function_call) });
   return { role, segs };
