@@ -11,8 +11,8 @@ const AUTO_CHARS = 40e6;   // ...or until roughly this much text is in memory
 const MORE_ROWS = 5000;
 const CONCURRENCY = 3;
 const EXAMPLES = [
-  "nvidia/When2Call", "MadeAgents/xlam-irrelevance-7.5k", "Team-ACE/ToolACE",
-  "NousResearch/hermes-function-calling-v1", "glaiveai/glaive-function-calling-v2",
+  "nvidia/When2Call", "Salesforce/xlam-function-calling-60k", "MadeAgents/xlam-irrelevance-7.5k", "Team-ACE/ToolACE",
+  "ibm-research/ToolRM-train-data", "NousResearch/hermes-function-calling-v1", "glaiveai/glaive-function-calling-v2",
 ];
 
 const $ = id => document.getElementById(id);
