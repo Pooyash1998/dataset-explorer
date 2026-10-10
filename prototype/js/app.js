@@ -65,7 +65,12 @@ function route() {
     renderLanding();
   }
 }
-window.addEventListener("hashchange", route);
+let silentHash = "";   // a hash change we made ourselves that must not reload the dataset
+window.addEventListener("hashchange", () => {
+  if (silentHash && silentHash === location.hash) { silentHash = ""; return; }
+  silentHash = "";
+  route();
+});
 
 const dsHash = (id, config, split) =>
   `#/ds/${id}` + (config ? `?${new URLSearchParams({ config, split })}` : "");
@@ -492,6 +497,14 @@ async function openLocal(key) {
 }
 
 // ---- explorer ------------------------------------------------------------------------------
+function renderSplitSelect() {
+  const sel = $("split-select"), src = S.src;
+  sel.hidden = S.splits.length < 2;
+  const plain = new Set(S.splits.map(s => s.config)).size === 1;
+  sel.innerHTML = S.splits.map((s, i) =>
+    `<option value="${i}"${s.config === src.config && s.split === src.split ? " selected" : ""}>${esc(plain ? s.split : `${s.config} / ${s.split}`)}</option>`).join("");
+}
+
 function openExplorer() {
   const src = S.src;
   showView("explorer");
@@ -499,11 +512,7 @@ function openExplorer() {
   const nm = $("ds-name");
   nm.textContent = src.kind === "local" ? `${src.key} (local)` : src.id;
   if (src.kind !== "local") nm.href = `https://huggingface.co/datasets/${src.id}`; else nm.removeAttribute("href");
-  const sel = $("split-select");
-  sel.hidden = S.splits.length < 2;
-  const plain = new Set(S.splits.map(s => s.config)).size === 1;
-  sel.innerHTML = S.splits.map((s, i) =>
-    `<option value="${i}"${s.config === src.config && s.split === src.split ? " selected" : ""}>${esc(plain ? s.split : `${s.config} / ${s.split}`)}</option>`).join("");
+  renderSplitSelect();
   $("search").value = "";
   $("more-btn").hidden = S.local || S.remote;
   $("search").disabled = S.remote && !S.index.ready;
@@ -514,8 +523,47 @@ function openExplorer() {
 
 $("split-select").onchange = ev => {
   const s = S.splits[+ev.target.value];
-  go(dsHash(S.src.id, s.config, s.split));
+  if (S.src.kind === "hf") switchSplit(s); else go(dsHash(S.src.id, s.config, s.split));
 };
+
+// Switch split in place: the current rows stay on screen until the first rows of the new split arrive.
+async function switchSplit(sp) {
+  const old = S, sel = $("split-select");
+  cancelLoad();
+  clearTimeout(refreshTimer); refreshTimer = 0;
+  const ctl = loadCtl = new AbortController();
+  const { id, token } = old.src;
+  sel.disabled = true;
+  old.busy = false; old.note = "";
+  $("status-spin").hidden = false;
+  $("status-text").textContent = `Loading ${sp.split}\u2026`;
+  try {
+    const first = await getRows(id, sp.config, sp.split, 0, PAGE_LEN, token, ctl.signal);
+    const st = newState({ kind: "hf", id, config: sp.config, split: sp.split, token });
+    st.splits = old.splits;
+    st.total = first.total;
+    st.partial = first.partial;
+    st.features = first.features;
+    st.plan = detectPlan(first.features, first.rows.map(r => r.row));
+    S = st;
+    ingest(first.rows, 0);
+    await loadPages(pagesFor(Math.min(BLOCK_ROWS, st.total)).filter(o => !st.pages.has(o)), ctl.signal);
+    if (ctl.signal.aborted) return;
+    const hash = dsHash(id, sp.config, sp.split);
+    if (location.hash !== hash) { silentHash = hash; location.hash = hash; }
+    remember(id, sp.config, sp.split);
+    openExplorer();
+    loadRest(st, ctl);
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    S = old;
+    toast(`Could not open ${sp.split}: ${e.message}`);
+    renderSplitSelect();
+    setStatus();
+  } finally {
+    sel.disabled = false;
+  }
+}
 
 function setStatus() {
   if (!S) return;
