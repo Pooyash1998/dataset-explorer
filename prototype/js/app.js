@@ -388,6 +388,7 @@ async function parquetLoad(st, signal) {
       const n = Number(rg.num_rows), rowEnd = rowStart + n;
       if (S !== st || signal.aborted) throw new DOMException("Aborted", "AbortError");
       const rows = await lib.parquetReadObjects({ file: buf, compressors: lib.compressors, rowStart, rowEnd });
+      if (S !== st || signal.aborted) throw new DOMException("Aborted", "AbortError");
       ingest(rows.map((r, i) => ({ row_idx: base + rowStart + i, row: plain(r), truncated_cells: [] })), -1);
       for (let o = Math.ceil((base + rowStart) / PAGE_LEN) * PAGE_LEN; o + PAGE_LEN <= base + rowEnd; o += PAGE_LEN) st.pages.add(o);
       rowStart = rowEnd;
