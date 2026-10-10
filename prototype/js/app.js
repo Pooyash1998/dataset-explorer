@@ -266,14 +266,7 @@ async function openRemote(id, wantConfig, wantSplit) {
       snap = await api.snapshot(snap.sid, token, ctl.signal);
     }
     setStep(3, "done");
-    const st = newState({ kind: "remote", id, config: snap.config, split: snap.split, sid: snap.sid, token });
-    st.splits = snap.splits;
-    st.total = snap.total;
-    st.partial = snap.partial;
-    st.plan = { ...snap.plan, consumed: new Set(snap.plan.consumed) };
-    st.features = snap.columns.map(c => ({ name: c.name, type: { dtype: c.type } }));
-    st.hasTools = !!st.plan.tools;
-    st.index = { ready: snap.indexReady, progress: snap.progress, stage: snap.stage, rows: snap.indexedRows };
+    const st = remoteState(id, snap, token);
     S = st;
     remember(id, snap.config, snap.split);
     openExplorer();
@@ -283,6 +276,18 @@ async function openRemote(id, wantConfig, wantSplit) {
     if (e.fallback) throw e;
     loadFail(step, e);
   }
+}
+
+function remoteState(id, snap, token) {
+  const st = newState({ kind: "remote", id, config: snap.config, split: snap.split, sid: snap.sid, token });
+  st.splits = snap.splits;
+  st.total = snap.total;
+  st.partial = snap.partial;
+  st.plan = { ...snap.plan, consumed: new Set(snap.plan.consumed) };
+  st.features = snap.columns.map(c => ({ name: c.name, type: { dtype: c.type } }));
+  st.hasTools = !!st.plan.tools;
+  st.index = { ready: snap.indexReady, progress: snap.progress, stage: snap.stage, rows: snap.indexedRows };
+  return st;
 }
 
 // After the explorer opens, keep polling until the server has indexed every row.
@@ -523,7 +528,7 @@ function openExplorer() {
 
 $("split-select").onchange = ev => {
   const s = S.splits[+ev.target.value];
-  if (S.src.kind === "hf") switchSplit(s); else go(dsHash(S.src.id, s.config, s.split));
+  if (S.src.kind === "hf" || S.src.kind === "remote") switchSplit(s); else go(dsHash(S.src.id, s.config, s.split));
 };
 
 // Switch split in place: the current rows stay on screen until the first rows of the new split arrive.
@@ -538,28 +543,45 @@ async function switchSplit(sp) {
   $("status-spin").hidden = false;
   $("status-text").textContent = `Loading ${sp.split}\u2026`;
   try {
-    const first = await getRows(id, sp.config, sp.split, 0, PAGE_LEN, token, ctl.signal);
-    const st = newState({ kind: "hf", id, config: sp.config, split: sp.split, token });
-    st.splits = old.splits;
-    st.total = first.total;
-    st.partial = first.partial;
-    st.features = first.features;
-    st.plan = detectPlan(first.features, first.rows.map(r => r.row));
-    S = st;
-    ingest(first.rows, 0);
-    await loadPages(pagesFor(Math.min(BLOCK_ROWS, st.total)).filter(o => !st.pages.has(o)), ctl.signal);
+    let st;
+    if (old.src.kind === "remote") {
+      let snap = await api.openRemote({ dataset: id, config: sp.config, split: sp.split, expiresAt: session()?.exp || undefined }, token, ctl.signal);
+      for (;;) {
+        if (snap.status === "error") throw new HFError(snap.error);
+        if (snap.plan && snap.rawReady) break;
+        const pct = Math.round((snap.progress || 0) * 100);
+        $("status-text").textContent = `Loading ${sp.split}\u2026 ` + (snap.status === "queued" || snap.status === "downloading" ? `downloading ${pct}%` : snap.status === "loading" ? "loading into the database" : "reading the schema");
+        await sleep(600);
+        if (ctl.signal.aborted) return;
+        snap = await api.snapshot(snap.sid, token, ctl.signal);
+      }
+      st = remoteState(id, snap, token);
+      S = st;
+    } else {
+      const first = await getRows(id, sp.config, sp.split, 0, PAGE_LEN, token, ctl.signal);
+      st = newState({ kind: "hf", id, config: sp.config, split: sp.split, token });
+      st.splits = old.splits;
+      st.total = first.total;
+      st.partial = first.partial;
+      st.features = first.features;
+      st.plan = detectPlan(first.features, first.rows.map(r => r.row));
+      S = st;
+      ingest(first.rows, 0);
+      await loadPages(pagesFor(Math.min(BLOCK_ROWS, st.total)).filter(o => !st.pages.has(o)), ctl.signal);
+    }
     if (ctl.signal.aborted) return;
     const hash = dsHash(id, sp.config, sp.split);
     if (location.hash !== hash) { silentHash = hash; location.hash = hash; }
     remember(id, sp.config, sp.split);
     openExplorer();
-    loadRest(st, ctl);
+    if (st.remote) { if (!st.index.ready) monitorIndex(st, ctl); } else loadRest(st, ctl);
   } catch (e) {
     if (e.name === "AbortError") return;
     S = old;
     toast(`Could not open ${sp.split}: ${e.message}`);
     renderSplitSelect();
     setStatus();
+    if (old.remote && !old.index.ready && loadCtl) monitorIndex(old, loadCtl);
   } finally {
     sel.disabled = false;
   }
