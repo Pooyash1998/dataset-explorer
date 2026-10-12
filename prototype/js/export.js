@@ -1,11 +1,11 @@
 // Export the rows on screen (all rows matching the filters) as JSONL, JSON or Parquet.
 const isInt32 = x => Number.isInteger(x) && Math.abs(x) < 2 ** 31;
 
-// One Parquet column from the values of one key. Nested values and mixed types are stored as JSON text.
+// One Parquet column from the values of one key. Nested values and mixed types are stored as JSON text in a plain string column.
 function column(name, rows) {
   const vals = rows.map(r => r[name] ?? null);
   const seen = new Set(vals.filter(v => v !== null).map(v => Array.isArray(v) ? "json" : typeof v));
-  let type = "JSON", data = vals.map(v => v === null ? null : JSON.stringify(v));
+  let type = "STRING", data = vals.map(v => v === null ? null : JSON.stringify(v));
   if (seen.size === 0 || (seen.size === 1 && seen.has("string"))) { type = "STRING"; data = vals; }
   else if (seen.size === 1 && seen.has("boolean")) { type = "BOOLEAN"; data = vals; }
   else if (seen.size === 1 && seen.has("number")) {
