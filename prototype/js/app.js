@@ -4,6 +4,7 @@ import { oauthEnabled, oauthToken, session, signIn, signOut, handleRedirect } fr
 import { esc, fmt, highlight, renderRow, renderListItem, SECTIONS, sectionsOf } from "./render.js";
 import * as api from "./remote.js";
 import { listFiles, groupSplits, loadSplit } from "./hub.js";
+import { toBlob, download } from "./export.js";
 
 const LIST_PAGE = 200;     // rows per page in the list pane
 const BLOCK_ROWS = 300;    // loaded before the explorer opens
@@ -641,6 +642,7 @@ async function switchSplit(sp) {
 
 function setStatus() {
   if (!S) return;
+  updateExport();
   if (S.remote) {
     const ix = S.index, pct = Math.round((ix.progress || 0) * 100);
     $("status-spin").hidden = ix.ready;
@@ -1023,6 +1025,63 @@ $("more-menu").addEventListener("click", ev => {
     backgroundLoad(pick);
   }
 });
+
+// Export: shown once the whole dataset is loaded, exports every row matching the current filters.
+const FORMATS = [["jsonl", "JSONL", "One row per line"], ["json", "JSON", "A single array"], ["parquet", "Parquet", "Nested columns are stored as JSON text"]];
+let exporting = false;
+
+function updateExport() {
+  const ready = !!S && !S.busy && (S.remote ? S.index.ready : S.views.length >= S.total);
+  $("export-wrap").hidden = !ready;
+  if (!ready) closeExport();
+}
+const exportCount = () => S.remote ? S.count : S.filtered.length;
+function closeExport() { $("export-menu").hidden = true; $("export-btn").setAttribute("aria-expanded", "false"); }
+
+$("export-btn").onclick = ev => {
+  ev.stopPropagation();
+  if (!$("export-menu").hidden) return closeExport();
+  const n = exportCount(), of = S.remote ? S.total : S.views.length;
+  $("export-menu").innerHTML = `<div class="none">${n === of ? `All ${fmt(n)} rows` : `${fmt(n)} of ${fmt(of)} rows (filtered)`}</div>` +
+    FORMATS.map(([id, name, sub]) => `<button role="menuitem" data-fmt="${id}" ${n && !exporting ? "" : "disabled"}>${name}<span class="sub">${esc(sub)}</span></button>`).join("");
+  $("export-menu").hidden = false;
+  $("export-btn").setAttribute("aria-expanded", "true");
+};
+document.addEventListener("click", ev => { if (!ev.target.closest("#export-wrap")) closeExport(); });
+$("export-menu").addEventListener("click", ev => {
+  const b = ev.target.closest("button[data-fmt]");
+  if (b) { closeExport(); runExport(b.dataset.fmt); }
+});
+
+async function runExport(format) {
+  const st = S;
+  exporting = true;
+  try {
+    let rows;
+    if (st.remote) {
+      rows = [];
+      const total = st.count;
+      for (let off = 0; off < total; off += 500) {
+        $("status-text").textContent = `Exporting ${fmt(rows.length)} of ${fmt(total)} rows\u2026`;
+        const page = await api.queryRows(st.src.sid, { ...filtersBody(), offset: off, length: 500 }, st.src.token);
+        for (const it of page.rows) rows.push(it.row);
+        if (S !== st) return;
+      }
+    } else {
+      rows = st.filtered.map(v => v.raw);
+    }
+    $("status-text").textContent = `Preparing ${format}\u2026`;
+    await new Promise(r => setTimeout(r, 0));
+    const blob = await toBlob(rows, format);
+    const name = `${(st.src.id || st.src.key).replace(/\//g, "__")}_${st.src.split || "data"}${rows.length < st.total ? "_filtered" : ""}.${format}`;
+    download(blob, name);
+    toast(`Exported ${fmt(rows.length)} rows as ${format}`);
+  } catch (e) {
+    toast(`Export failed: ${e.message}`);
+  }
+  exporting = false;
+  if (S === st) setStatus();
+}
 
 // Theme
 function toggleTheme() {
