@@ -53,7 +53,12 @@ async function get(path, params, token, signal, patient = false) {
     try { res = await fetch(url, { headers, signal }); }
     catch (e) { if (e.name === "AbortError") throw e; }
     // A 429 from the CDN carries no CORS headers, so the browser reports it as a failed fetch (res === null).
-    const transient = !res || res.status === 429 || res.status >= 500;
+    let transient = !res || res.status === 429 || res.status >= 500;
+    // The viewer answers 5xx for datasets it will never serve (private ones): retrying cannot help.
+    if (transient && res && res.status !== 429) {
+      const msg = await res.clone().json().then(j => j.error || "", () => "");
+      if (/private|not supported/i.test(msg)) transient = false;
+    }
     if (res?.ok) {
       if (patient) { gap = Math.max(MIN_GAP, gap * 0.97); cool = Math.max(MIN_COOL, cool * 0.8); lastOk = Date.now(); }
       if (attempt) notify("");

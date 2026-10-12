@@ -3,6 +3,7 @@ import { detectPlan, normalizeRow, normalizeLocal, buildFacets } from "./schema.
 import { oauthEnabled, oauthToken, session, signIn, signOut, handleRedirect } from "./auth.js";
 import { esc, fmt, highlight, renderRow, renderListItem, SECTIONS, sectionsOf } from "./render.js";
 import * as api from "./remote.js";
+import { listFiles, groupSplits, loadSplit } from "./hub.js";
 
 const LIST_PAGE = 200;     // rows per page in the list pane
 const BLOCK_ROWS = 300;    // loaded before the explorer opens
@@ -345,8 +346,55 @@ async function openHF(id, wantConfig, wantSplit) {
     loadRest(st, ctl);
   } catch (e) {
     if (e.name === "AbortError") return;
+    // The viewer does not serve private datasets (PRO and Enterprise only): read the repository files instead.
+    if (token && e instanceof HFError && /private datasets are only supported|not supported/i.test(e.message)) return openHub(id, wantConfig, wantSplit);
     loadFail(step, e);
   }
+}
+
+const HUB_STEPS = ["Listing the repository files", "Downloading the data", "Reading its schema"];
+
+async function openHub(id, wantConfig, wantSplit) {
+  const ctl = loadCtl = new AbortController();
+  const token = getToken();
+  S = null;
+  loadUI(id, HUB_STEPS);
+  let step = 0;
+  try {
+    setStep(0, "active");
+    const splits = groupSplits(await listFiles(id, token, ctl.signal));
+    if (!splits.length) throw new HFError("No data files (Parquet, JSONL, JSON or CSV) were found in this dataset.");
+    const sp = pickSplit(splits, wantConfig, wantSplit);
+    setStep(0, "done"); setStep(step = 1, "active"); setBar(0);
+    const st = await hubState(id, splits, sp, token, ctl.signal, p => setBar(p));
+    setStep(1, "done"); setStep(step = 2, "done");
+    if (ctl.signal.aborted) return;
+    remember(id, sp.config, sp.split);
+    S = st;
+    openExplorer();
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    loadFail(step, e);
+  }
+}
+
+// Downloads one split of a repository and builds the state for it, all rows in memory.
+async function hubState(id, splits, sp, token, signal, onProgress) {
+  const { rows, features } = await loadSplit(id, sp, token, signal, onProgress);
+  if (!rows.length) throw new HFError(`The ${sp.split} split has no rows.`);
+  const st = newState({ kind: "hub", id, config: sp.config, split: sp.split, token });
+  st.splits = splits;
+  st.total = rows.length;
+  st.features = features;
+  st.plan = detectPlan(features, rows.slice(0, 50));
+  const prev = S;
+  S = st;
+  try {
+    ingest(rows.map((row, i) => ({ row_idx: i, row, truncated_cells: [] })), -1);
+  } catch (e) { S = prev; throw e; }
+  for (let o = 0; o < st.total; o += PAGE_LEN) st.pages.add(o);
+  S = prev;
+  return st;
 }
 
 // The rest of the dataset: from its Parquet files when possible (a few requests), else page by page.
@@ -529,7 +577,7 @@ function openExplorer() {
 
 $("split-select").onchange = ev => {
   const s = S.splits[+ev.target.value];
-  if (S.src.kind === "hf" || S.src.kind === "remote") switchSplit(s); else go(dsHash(S.src.id, s.config, s.split));
+  if (["hf", "remote", "hub"].includes(S.src.kind)) switchSplit(s); else go(dsHash(S.src.id, s.config, s.split));
 };
 
 // Switch split in place: the current rows stay on screen until the first rows of the new split arrive.
@@ -545,7 +593,10 @@ async function switchSplit(sp) {
   $("status-text").textContent = `Loading ${sp.split}\u2026`;
   try {
     let st;
-    if (old.src.kind === "remote") {
+    if (old.src.kind === "hub") {
+      st = await hubState(id, old.splits, sp, token, ctl.signal, p => { $("status-text").textContent = `Loading ${sp.split}\u2026 downloading ${Math.round(p * 100)}%`; });
+      S = st;
+    } else if (old.src.kind === "remote") {
       let snap = await api.openRemote({ dataset: id, config: sp.config, split: sp.split, expiresAt: session()?.exp || undefined }, token, ctl.signal);
       for (;;) {
         if (snap.status === "error") throw new HFError(snap.error);
@@ -575,7 +626,7 @@ async function switchSplit(sp) {
     if (location.hash !== hash) { silentHash = hash; location.hash = hash; }
     remember(id, sp.config, sp.split);
     openExplorer();
-    if (st.remote) { if (!st.index.ready) monitorIndex(st, ctl); } else loadRest(st, ctl);
+    if (st.remote) { if (!st.index.ready) monitorIndex(st, ctl); } else if (st.src.kind === "hf") loadRest(st, ctl);
   } catch (e) {
     if (e.name === "AbortError") return;
     S = old;
